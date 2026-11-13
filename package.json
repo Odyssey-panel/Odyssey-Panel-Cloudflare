@@ -5,9 +5,9 @@
   "scripts": {
     "dev": "next dev -p 3000",
     "dev:cf": "opennextjs-cloudflare dev",
-    "build": "opennextjs-cloudflare build",
+    "build": "next build --webpack && opennextjs-cloudflare build --skipNextBuild",
     "preview": "opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare deploy",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "seed": "bun prisma/seed.ts",
     "lint": "eslint .",
     "db:push": "prisma db push --accept-data-loss",

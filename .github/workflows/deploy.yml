@@ -24,10 +24,12 @@ jobs:
 
       - name: Build & deploy (OpenNext → Cloudflare)
         run: |
-          npx opennextjs-cloudflare build
+          npx next build --webpack
+          npx opennextjs-cloudflare build --skipNextBuild
           npx opennextjs-cloudflare deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           NEXT_CF_DEV_SYNC: "0"
           NEXT_TELEMETRY_DISABLED: "1"
+          NODE_OPTIONS: "--max-old-space-size=4096"
