@@ -5,24 +5,56 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Copy, ExternalLink, RefreshCw, Server, ShieldCheck, Terminal } from 'lucide-react'
+import { Copy, ExternalLink, QrCode, RefreshCw, Server, ShieldCheck, Terminal } from 'lucide-react'
 import { toast } from 'sonner'
 import { useLang } from '@/lib/i18n'
+import { QrDialog } from '@/components/panel/qr-dialog'
+
+function toHex(bytes: Uint8Array) {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
 
 function randomSecret() {
   const bytes = new Uint8Array(16)
   crypto.getRandomValues(bytes)
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  return toHex(bytes)
 }
+
+type SecretMode = 'dd' | 'ee'
 
 export function TelegramProxyView() {
   const { t } = useLang()
   const [host, setHost] = useState('')
   const [port, setPort] = useState('443')
   const [secret, setSecret] = useState('')
+  const [mode, setMode] = useState<SecretMode>('dd')
+  const [fakeTlsDomain, setFakeTlsDomain] = useState('')
   const [busy, setBusy] = useState(false)
+  const [qrOpen, setQrOpen] = useState(false)
 
-  const clientSecret = secret ? `dd${secret}` : ''
+  const domain = useMemo(
+    () =>
+      fakeTlsDomain
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//, '')
+        .replace(/\/.*$/, ''),
+    [fakeTlsDomain],
+  )
+  const domainHex = useMemo(
+    () => (mode === 'ee' && domain ? toHex(new TextEncoder().encode(domain)) : ''),
+    [mode, domain],
+  )
+
+  // dd = random padding (classic); ee = FakeTLS — the traffic looks like a
+  // TLS handshake to the camouflage domain. The server itself always runs
+  // with the RAW 16-byte secret; dd/ee prefixes only apply to the link.
+  const clientSecret = useMemo(() => {
+    if (!secret) return ''
+    if (mode === 'dd') return `dd${secret}`
+    return domainHex ? `ee${domainHex}${secret}` : ''
+  }, [secret, mode, domainHex])
+
   const link = useMemo(() => {
     if (!host.trim() || !clientSecret || !/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) return ''
     return `https://t.me/proxy?server=${encodeURIComponent(host.trim())}&port=${port}&secret=${clientSecret}`
@@ -88,11 +120,11 @@ echo
 echo "MTProxy service status:"
 systemctl --no-pager --full status odyssey-mtproxy || true
 echo
-echo "Client secret (random-padding mode): dd${secret}"
+echo "Client secret: ${clientSecret || '<pick dd or ee mode in the panel>'}"
 echo "Open TCP port ${safePort} in your VPS/cloud firewall."
-echo "Telegram link template: https://t.me/proxy?server=YOUR_SERVER_IP&port=${safePort}&secret=dd${secret}"
+echo "Telegram link template: https://t.me/proxy?server=YOUR_SERVER_IP&port=${safePort}&secret=${clientSecret || '<client-secret>'}"
 `
-  }, [secret, port])
+  }, [secret, port, clientSecret])
 
   const copy = async (value: string, label: string) => {
     try {
@@ -125,7 +157,7 @@ echo "Telegram link template: https://t.me/proxy?server=YOUR_SERVER_IP&port=${sa
       <Card className="aurora-edge">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base"><Server className="h-4 w-4" />{t('Server details')}</CardTitle>
-          <CardDescription>{t('You need an Ubuntu/Debian VPS with a public IP. This panel runs on Railway and cannot expose a raw MTProto TCP listener itself.')}</CardDescription>
+          <CardDescription>{t('You need an Ubuntu/Debian VPS with a public IP. Cloudflare Workers cannot expose a raw MTProto TCP listener, so the MTProxy server itself runs on your VPS.')}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-[1fr_140px_auto] sm:items-end">
           <div className="space-y-2">
@@ -138,6 +170,22 @@ echo "Telegram link template: https://t.me/proxy?server=YOUR_SERVER_IP&port=${sa
           </div>
           <Button onClick={generate} disabled={busy} className="gap-2"><RefreshCw className="h-4 w-4" />{t('Generate secret')}</Button>
         </CardContent>
+        <CardContent className="grid gap-4 sm:grid-cols-[auto_1fr] sm:items-end">
+          <div className="space-y-2">
+            <Label>{t('Connection mode')}</Label>
+            <div className="flex gap-2">
+              <Button variant={mode === 'dd' ? 'default' : 'outline'} size="sm" onClick={() => setMode('dd')}>{t('Random padding (dd)')}</Button>
+              <Button variant={mode === 'ee' ? 'default' : 'outline'} size="sm" onClick={() => setMode('ee')}>{t('FakeTLS (ee)')}</Button>
+            </div>
+          </div>
+          {mode === 'ee' && (
+            <div className="space-y-2">
+              <Label htmlFor="mtproxy-domain">{t('FakeTLS domain (SNI)')}</Label>
+              <Input id="mtproxy-domain" dir="ltr" placeholder="cloudflare.com" value={fakeTlsDomain} onChange={(e) => setFakeTlsDomain(e.target.value)} />
+              <p className="text-xs text-muted-foreground">{t('The client traffic is masked as a TLS handshake towards this domain. Use a domain that is reachable from Iran.')}</p>
+            </div>
+          )}
+        </CardContent>
       </Card>
 
       {secret && (
@@ -146,13 +194,16 @@ echo "Telegram link template: https://t.me/proxy?server=YOUR_SERVER_IP&port=${sa
             <CardHeader><CardTitle className="text-base">{t('Connection details')}</CardTitle><CardDescription>{t('Keep this secret private. Anyone who has the link can use your proxy.')}</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>{t('MTProto secret (random padding)')}</Label>
-                <div className="flex gap-2"><Input readOnly dir="ltr" value={clientSecret} className="font-mono text-xs" /><Button variant="outline" size="icon" onClick={() => void copy(clientSecret, t('Secret'))}><Copy className="h-4 w-4" /></Button></div>
+                <Label>{t('MTProto client secret')}</Label>
+                <div className="flex gap-2"><Input readOnly dir="ltr" value={clientSecret || t('Enter a valid FakeTLS domain')} className="font-mono text-xs" /><Button variant="outline" size="icon" disabled={!clientSecret} onClick={() => void copy(clientSecret, t('Secret'))}><Copy className="h-4 w-4" /></Button></div>
               </div>
               <div className="space-y-2">
                 <Label>{t('Telegram connection link')}</Label>
                 <div className="flex gap-2"><Input readOnly dir="ltr" value={link || t('Enter a valid server address and port')} className="font-mono text-xs" /><Button variant="outline" size="icon" disabled={!link} onClick={() => void copy(link, t('Link'))}><Copy className="h-4 w-4" /></Button></div>
-                {link && <Button asChild className="w-full sm:w-auto"><a href={link} target="_blank" rel="noreferrer"><ExternalLink className="me-2 h-4 w-4" />{t('Open in Telegram')}</a></Button>}
+                <div className="flex flex-wrap gap-2">
+                  {link && <Button asChild><a href={link} target="_blank" rel="noreferrer"><ExternalLink className="me-2 h-4 w-4" />{t('Open in Telegram')}</a></Button>}
+                  {link && <Button variant="outline" onClick={() => setQrOpen(true)} className="gap-2"><QrCode className="h-4 w-4" />{t('Show QR')}</Button>}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -172,10 +223,18 @@ echo "Telegram link template: https://t.me/proxy?server=YOUR_SERVER_IP&port=${sa
       <Card className="border-amber-500/30 bg-amber-500/5">
         <CardContent className="space-y-2 py-4 text-sm">
           <p className="font-semibold">{t('Important: what this does and does not do')}</p>
-          <p className="text-muted-foreground">{t('The script must be run once on your own VPS as root. The VPS provider firewall/security group must also allow inbound TCP on the chosen port. The generated link becomes usable after the service is active; the panel does not pretend to deploy a proxy on Railway.')}</p>
+          <p className="text-muted-foreground">{t('The script must be run once on your own VPS as root. The VPS provider firewall/security group must also allow inbound TCP on the chosen port. The generated link becomes usable after the service is active; Cloudflare Workers cannot host an MTProto TCP server themselves.')}</p>
           <p className="text-muted-foreground">{t('After installation, verify with: systemctl is-active odyssey-mtproxy')}</p>
         </CardContent>
       </Card>
+
+      <QrDialog
+        open={qrOpen}
+        onOpenChange={setQrOpen}
+        value={link}
+        title={t('Telegram connection link')}
+        description={t('Scan with the Telegram app to connect instantly.')}
+      />
     </div>
   )
 }

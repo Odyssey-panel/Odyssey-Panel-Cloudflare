@@ -54,9 +54,8 @@ prompt
 local-*
 tool-results
 
-# sqlite database — the panel db SHIPS with the repo (private repo doubles as
-# the deployable data seed: schema + branded defaults + admin credentials).
-# Only the transient sidecar files stay ignored.
+# sqlite database — Cloudflare edition uses D1 in production; local dev dbs stay local.
+/db/*.db
 /db/*.db-journal
 /db/*.db-wal
 /db/*.db-shm
@@ -80,3 +79,8 @@ tool-results
 # local test copies — the Dockerfile downloads xray at build time
 /bin/
 .railway/
+
+# Cloudflare build artifacts
+/.open-next/
+/.wrangler/
+/.dev.vars

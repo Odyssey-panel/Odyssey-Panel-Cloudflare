@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./odyssey-redesign.css"; /* Odyssey v16 visual refresh */
 
 /* ---- Self-hosted fonts (zero external requests) ----
    Replaces next/font/google: unbreaks the Turbopack 16.1.x Docker build

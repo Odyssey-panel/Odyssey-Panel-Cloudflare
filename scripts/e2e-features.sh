@@ -9,8 +9,8 @@ rm -f "$DB" "$DB-"* /tmp/e2e-feat-cj.txt
 export DATABASE_URL="file:$DB"
 export PORT
 
-node scripts/ensure-db.mjs
-node prisma/seed.boot.mjs
+npx prisma db push --accept-data-loss >/dev/null 2>&1
+npx prisma db push --accept-data-loss >/dev/null 2>&1
 
 node .next/standalone/server.js > /tmp/e2e-feat-server.log 2>&1 &
 SRV=$!

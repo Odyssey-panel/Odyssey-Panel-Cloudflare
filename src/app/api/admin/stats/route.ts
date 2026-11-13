@@ -2,12 +2,16 @@ import os from 'node:os'
 import { db } from '@/lib/db'
 import { requireAuth, jsonSafe } from '@/lib/auth'
 import { getBaseUrl } from '@/lib/settings'
+import { maybeAutoCheck } from '@/lib/jobs'
 
 export const runtime = 'nodejs'
 
 export async function GET() {
   const unauthorized = await requireAuth()
   if (unauthorized) return unauthorized
+
+  // Opportunistic auto health-check (throttled to once per 5 minutes).
+  maybeAutoCheck()
 
   const [clients, nodes, workers, proxyCount, protocolGroups] = await Promise.all([
     db.client.findMany(),

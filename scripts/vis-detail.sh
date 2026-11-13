@@ -7,8 +7,8 @@ PORT=8092
 export DATABASE_URL="file:$DB"
 export PORT
 
-node scripts/ensure-db.mjs > /dev/null 2>&1
-node prisma/seed.boot.mjs > /dev/null 2>&1
+npx prisma db push --accept-data-loss >/dev/null 2>&1
+npx prisma db push --accept-data-loss >/dev/null 2>&1
 
 node .next/standalone/server.js > /tmp/vis-server.log 2>&1 &
 SRV=$!

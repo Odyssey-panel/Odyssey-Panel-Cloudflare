@@ -9,8 +9,8 @@ export DATABASE_URL="file:$DB"
 export PORT
 
 # replicate boot.sh: restore schema from template, then seed admin
-node scripts/ensure-db.mjs
-node prisma/seed.boot.mjs
+npx prisma db push --accept-data-loss >/dev/null 2>&1
+npx prisma db push --accept-data-loss >/dev/null 2>&1
 
 node .next/standalone/server.js > /tmp/e2e-server.log 2>&1 &
 SRV=$!

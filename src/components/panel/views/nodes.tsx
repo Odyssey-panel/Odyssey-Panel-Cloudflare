@@ -49,6 +49,7 @@ import {
   Globe,
   ChevronDown,
   Code2,
+  Rocket,
 } from 'lucide-react'
 
 type NodeRow = {
@@ -84,6 +85,7 @@ export function NodesView() {
   const [checking, setChecking] = useState(false)
   const [addNode, setAddNode] = useState(false)
   const [addWorker, setAddWorker] = useState(false)
+  const [deployWorker, setDeployWorker] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ kind: 'node' | 'worker'; id: string; name: string } | null>(null)
   const [editNode, setEditNode] = useState<NodeRow | null>(null)
   const { t, lang } = useLang()
@@ -136,6 +138,9 @@ export function NodesView() {
           </Button>
           <Button size="sm" variant="outline" onClick={() => setAddWorker(true)}>
             <Globe className="h-4 w-4" /> {t('Add worker')}
+          </Button>
+          <Button size="sm" variant="outline" className="text-odyssey-bright" onClick={() => setDeployWorker(true)}>
+            <Rocket className="h-4 w-4" /> {t('Deploy tunnel worker')}
           </Button>
           <Button size="sm" onClick={() => setAddNode(true)}>
             <Plus className="h-4 w-4" /> {t('Add node')}
@@ -209,6 +214,7 @@ export function NodesView() {
         </TabsContent>
 
         <TabsContent value="workers" className="mt-4 space-y-3">
+          <DeployWorkerCard onOpen={() => setDeployWorker(true)} />
           <WorkerKitCard />
           {workersApi.loading && !workersApi.data ? (
             <Skeleton className="h-20" />
@@ -262,6 +268,13 @@ export function NodesView() {
 
       <AddNodeDialog open={addNode} onOpenChange={setAddNode} onDone={() => run(async () => {}, undefined)} />
       <AddWorkerDialog open={addWorker} onOpenChange={setAddWorker} onDone={() => run(async () => {}, undefined)} />
+      <DeployWorkerDialog
+        open={deployWorker}
+        onOpenChange={setDeployWorker}
+        onDone={async () => {
+          await workersApi.reload()
+        }}
+      />
       {editNode && (
         <EditNodeDialog
           node={editNode}
@@ -499,6 +512,117 @@ function AddWorkerDialog({ open, onOpenChange, onDone }: { open: boolean; onOpen
 // ---------------------------------------------------------------------------
 // Worker kit — ready-to-deploy Cloudflare Worker + Persian setup guide
 // ---------------------------------------------------------------------------
+
+function DeployWorkerCard({ onOpen }: { onOpen: () => void }) {
+  const { t } = useLang()
+  return (
+    <Card className="border-odyssey-cyan/25 bg-gradient-to-br from-odyssey-cyan/5 to-transparent">
+      <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Rocket className="h-4 w-4 text-odyssey-bright" />
+            {t('One-click deploy — the panel uploads the tunnel worker for you')}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t('Paste a Cloudflare API token (Workers Scripts:Edit). The token is used once and never stored.')}
+          </p>
+        </div>
+        <Button size="sm" onClick={onOpen} className="gap-2">
+          <Rocket className="h-4 w-4" /> {t('Deploy tunnel worker')}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function DeployWorkerDialog({
+  open,
+  onOpenChange,
+  onDone,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  onDone: () => void
+}) {
+  const [name, setName] = useState('odyssey-tunnel')
+  const [apiToken, setApiToken] = useState('')
+  const [accountId, setAccountId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [deployedUrl, setDeployedUrl] = useState('')
+  const { t } = useLang()
+
+  const submit = async () => {
+    setBusy(true)
+    setDeployedUrl('')
+    try {
+      const res = await api<{ url?: string }>('/api/admin/workers/deploy', {
+        method: 'POST',
+        body: JSON.stringify({ apiToken: apiToken.trim(), name: name.trim(), accountId: accountId.trim() || undefined }),
+      })
+      setDeployedUrl(res.url || '')
+      toast.success(t('Tunnel worker deployed'))
+      onDone()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t('Failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setDeployedUrl('') }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('Deploy tunnel worker')}</DialogTitle>
+          <DialogDescription>
+            {t('The panel uploads the vless-over-WebSocket worker to your Cloudflare account and registers its URL.')}
+          </DialogDescription>
+        </DialogHeader>
+        {deployedUrl ? (
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>{t('Deployed URL')}</Label>
+              <div className="flex gap-2">
+                <Input readOnly dir="ltr" value={deployedUrl} className="font-mono text-xs" />
+                <CopyButton value={deployedUrl} size="icon" />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">{t('Now create a user account with “Cloudflare worker” as the source and pick this worker.')}</p>
+            <DialogFooter>
+              <Button onClick={() => { onOpenChange(false); setDeployedUrl('') }}>{t('Done')}</Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-3">
+              <div className="space-y-1.5">
+                <Label>{t('Worker name')}</Label>
+                <Input value={name} dir="ltr" onChange={(e) => setName(e.target.value)} placeholder="odyssey-tunnel" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t('Cloudflare API token *')}</Label>
+                <Input value={apiToken} dir="ltr" type="password" onChange={(e) => setApiToken(e.target.value)} placeholder="Workers Scripts:Edit" />
+                <p className="text-xs text-muted-foreground">
+                  {t('Create at dash.cloudflare.com → My Profile → API Tokens. The token is used once in-memory and never stored.')}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t('Account ID (optional)')}</Label>
+                <Input value={accountId} dir="ltr" onChange={(e) => setAccountId(e.target.value)} placeholder="auto-detected" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>{t('Cancel')}</Button>
+              <Button onClick={submit} disabled={busy || !apiToken.trim()}>
+                {busy && <Loader2 className="h-4 w-4 animate-spin" />} <Rocket className="h-4 w-4" /> {t('Deploy')}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 function WorkerKitCard() {
   const { t, lang } = useLang()

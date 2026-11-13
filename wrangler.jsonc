@@ -1,0 +1,30 @@
+// Odyssey Panel — Cloudflare Workers configuration
+// Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+//
+// One-time setup (see DEPLOY-CF.md):
+//   npx wrangler d1 create odyssey-db
+//   → copy the printed database_id into the binding below.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "odyssey-panel",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "odyssey-db",
+      // Local dev works with this placeholder. For production, replace it
+      // with the real id printed by `npx wrangler d1 create odyssey-db`.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
