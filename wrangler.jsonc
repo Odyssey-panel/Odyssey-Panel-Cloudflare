@@ -18,9 +18,8 @@
     {
       "binding": "DB",
       "database_name": "odyssey-db",
-      // Local dev works with this placeholder. For production, replace it
-      // with the real id printed by `npx wrangler d1 create odyssey-db`.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // Real database created on the Odyssey-panel account (region APAC).
+      "database_id": "51ea2034-7d7d-47a9-aaeb-26efa7441f88",
       "migrations_dir": "migrations"
     }
   ],
