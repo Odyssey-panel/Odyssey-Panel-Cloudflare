@@ -23,7 +23,7 @@ export async function PATCH(req: Request, { params }: Params) {
   // address goes through URL repair (a pasted "https://host/path" must never
   // end up verbatim in a vless:// link)
   if (body.address !== undefined) {
-    const norm = normalizeProxyTarget(
+    const norm = await normalizeProxyTarget(
       {
         address: String(body.address),
         port: body.port !== undefined ? Number(body.port) : undefined,

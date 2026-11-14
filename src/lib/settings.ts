@@ -7,6 +7,12 @@ export type PanelSettings = {
   lastOrigin: string
   /** JSON map of ISP anti-censorship preset overrides (src/lib/isps.ts) */
   ispPresets: string
+  /** Base URL of the deployed edge tunnel worker (VLESS over WS). */
+  tunnelUrl: string
+  /** Secret ws path segment served by the tunnel worker. */
+  tunnelPath: string
+  /** Optional comma-separated PROXY_IP relays passed to the tunnel worker. */
+  tunnelProxyIp: string
 }
 
 /** Source of truth for defaults — missing DB rows fall back to these. */
@@ -16,6 +22,9 @@ export const SETTINGS_DEFAULTS: Record<keyof PanelSettings, string> = {
   publicUrl: '',
   lastOrigin: '',
   ispPresets: '',
+  tunnelUrl: '',
+  tunnelPath: '',
+  tunnelProxyIp: '',
 }
 
 /** Keys hidden from the settings GET response. */

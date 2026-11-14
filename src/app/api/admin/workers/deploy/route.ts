@@ -1,12 +1,13 @@
 import { db } from '@/lib/db'
 import { requireAuth, jsonSafe } from '@/lib/auth'
 import { WORKER_CODE } from '@/lib/worker-kit'
+import { setSettings, getSetting } from '@/lib/settings'
 
 export const runtime = 'nodejs'
 
 const CF_API = 'https://api.cloudflare.com/client/v4'
 /** Compat date for the deployed tunnel worker (cloudflare:sockets ready). */
-const TUNNEL_COMPAT_DATE = '2025-05-01'
+const TUNNEL_COMPAT_DATE = '2025-11-01'
 
 type CfError = { errors?: { code: number; message: string }[]; messages?: unknown[] }
 
@@ -93,10 +94,30 @@ export async function POST(req: Request) {
       return Response.json({ error: 'Could not resolve the workers.dev subdomain' }, { status: 502 })
     }
 
-    // 3) Upload the tunnel worker (module format)
+    // 3) Tunnel bindings: UUID allowlist + secret path + optional proxy relay
+    const uuidRows = await db.proxy.findMany({
+      where: { protocol: 'vless' },
+      select: { secret: true },
+      distinct: ['secret'],
+    })
+    const uuids = Array.from(
+      new Set(uuidRows.map((r) => r.secret.trim().toLowerCase()).filter(Boolean)),
+    )
+
+    let tunnelPath = (await getSetting('tunnelPath')).trim().replace(/^\/+|\/+$/g, '')
+    if (!tunnelPath) {
+      tunnelPath = crypto.randomUUID().replace(/-/g, '').slice(0, 24)
+    }
+    const proxyIp = (await getSetting('tunnelProxyIp')).trim()
+
     const metadata = {
       main_module: 'worker.js',
       compatibility_date: TUNNEL_COMPAT_DATE,
+      bindings: [
+        { type: 'plain_text', name: 'UUIDS', text: uuids.join(',') },
+        { type: 'plain_text', name: 'PATH_SECRET', text: tunnelPath },
+        { type: 'plain_text', name: 'PROXY_IP', text: proxyIp },
+      ],
     }
     const form = new FormData()
     form.append(
@@ -126,10 +147,30 @@ export async function POST(req: Request) {
     const worker =
       existing ??
       (await db.worker.create({
-        data: { name, url, note: 'deployed by panel (one-click)' },
+        data: { name, url, note: 'Odyssey Edge Tunnel — deployed by panel (one-click)' },
       }))
 
-    return jsonSafe({ worker, url, accountId }, { status: 201 })
+    // 6) Persist tunnel settings so every new config points at the tunnel
+    await setSettings({ tunnelUrl: url, tunnelPath })
+
+    // 7) Make sure a Node row exists for the tunnel (UI bookkeeping)
+    const nodeUrlHost = new URL(url).hostname
+    const existingNode = await db.node.findFirst({ where: { address: nodeUrlHost } })
+    if (!existingNode) {
+      await db.node.create({
+        data: {
+          name: 'Odyssey Edge Tunnel',
+          address: nodeUrlHost,
+          port: 443,
+          protocol: 'vless',
+          tls: true,
+          sni: nodeUrlHost,
+          note: 'one-click edge tunnel worker',
+        },
+      })
+    }
+
+    return jsonSafe({ worker, url, accountId, path: `/${tunnelPath}` }, { status: 201 })
   } catch (e) {
     return Response.json(
       { error: e instanceof Error ? e.message : 'Cloudflare deploy failed' },

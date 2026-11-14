@@ -1,14 +1,21 @@
 /**
- * Built-in backend + address normalization helpers.
+ * Edge tunnel + address normalization helpers.
  *
- * The panel ships a real vless+ws backend (xray-core) inside its own
- * container, exposed on the panel's own HTTPS domain under /vlessws.
- * That makes every generated config genuinely work with zero external
- * setup — the admin pastes nothing, the panel IS the server.
+ * Cloudflare-era architecture: the panel does NOT serve the data path.
+ * Instead the admin deploys the "Odyssey Edge Tunnel" worker (src/lib/
+ * worker-kit.ts) on their own Cloudflare account — one click from the panel
+ * — and every generated config points at that worker:
+ *
+ *   client ──WSS──▶ Cloudflare edge (tunnel worker, cloudflare:sockets)
+ *                       └── connect() ──▶ target
+ *
+ * No VPS, no container, no Railway. tunnelFields() describes the deployed
+ * tunnel so normalizeProxyTarget() can map the panel domain (or an empty
+ * address) onto it automatically.
  *
  * normalizeAddressInput() additionally repairs pasted URLs like
- * "https://foo.workers.dev/path" or the panel's own URL so the panel
- * never emits a broken vless:// link again.
+ * "https://foo.workers.dev/path" so the panel never emits a broken
+ * vless:// link again.
  */
 import type { PanelSettings } from './settings'
 
@@ -91,26 +98,39 @@ export type BuiltinFields = {
   path: string
 }
 
-/** The proxy fields that point a config at the built-in backend. */
-export function builtinBackendFields(host: string): BuiltinFields {
-  return {
-    address: host,
-    port: 443,
-    transport: 'ws',
-    tls: true,
-    sni: host,
-    host,
-    path: BUILTIN_WS_PATH,
+/**
+ * The ws path the edge tunnel worker serves: /<secret> (+ ?ed=2560 on the
+ * client side for 0-RTT). Empty until the one-click deploy has run.
+ */
+export async function tunnelFields(): Promise<BuiltinFields | null> {
+  const { getSettings } = await import('./settings')
+  const s = await getSettings()
+  const url = (s.tunnelUrl || '').trim()
+  if (!url) return null
+  try {
+    const u = new URL(url)
+    const host = u.hostname
+    return {
+      address: host,
+      port: 443,
+      transport: 'ws',
+      tls: true,
+      sni: host,
+      host,
+      path: `/${(s.tunnelPath || '').replace(/^\/+|\/+$/g, '')}`,
+    }
+  } catch {
+    return null
   }
 }
 
 /**
  * Server-side normalization applied to every proxy payload before it is
- * stored. Repairs URL-like addresses and switches to the built-in backend
- * when the pasted address is the panel's own domain (the most common
- * "configs don't work" mistake — the panel now actually backs it).
+ * stored. Repairs URL-like addresses and routes the panel's own domain (the
+ * most common "configs don't work" input) to the edge tunnel worker — the
+ * Cloudflare-era replacement of the Railway-era built-in xray backend.
  */
-export function normalizeProxyTarget(
+export async function normalizeProxyTarget(
   input: {
     address?: string | null
     port?: number | null
@@ -122,7 +142,7 @@ export function normalizeProxyTarget(
   },
   panelHostname: string,
   builtin = true,
-): {
+): Promise<{
   address: string
   port?: number
   sni?: string
@@ -132,7 +152,7 @@ export function normalizeProxyTarget(
   tls?: boolean
   usedBuiltin: boolean
   note?: string
-} {
+}> {
   const parsed = parseAddressInput(input.address || '')
   let address = parsed.address
   let port = input.port ?? undefined
@@ -149,12 +169,19 @@ export function normalizeProxyTarget(
   if (parsed.path && (!path || path === '/')) path = parsed.path
   if (parsed.host && !host) host = parsed.host
 
-  // Pasted the panel's own URL/domain → serve through the built-in backend
-  const isPanelHost =
-    !!panelHostname && !!address && hostOf(address) === panelHostname
-  if (builtin && isPanelHost) {
-    const f = builtinBackendFields(panelHostname)
-    return { ...f, usedBuiltin: true, note: 'builtin-backend' }
+  // The edge tunnel worker, when deployed, IS the default backend: the panel
+  // domain (or an empty address) both map onto it — data path never touches
+  // the panel, so configs get full edge speed.
+  if (builtin) {
+    const isPanelHost =
+      !!panelHostname && !!address && hostOf(address) === panelHostname
+    const isTunnelHost = !!address && /\.workers\.dev$/i.test(address) && !!hostOf(address).match(/tunnel/i)
+    if (isPanelHost || isTunnelHost || !address) {
+      const t = await tunnelFields()
+      if (t) {
+        return { ...t, usedBuiltin: true, note: 'edge-tunnel' }
+      }
+    }
   }
 
   // Pasted a Cloudflare worker URL → tls+ws through the worker domain

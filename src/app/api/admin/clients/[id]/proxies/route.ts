@@ -37,10 +37,7 @@ export async function POST(req: Request, { params }: Params) {
   }
   const address = (body.address || '').trim()
   const port = Number(body.port)
-  if (!address) {
-    return Response.json({ error: 'Valid address required' }, { status: 400 })
-  }
-  const norm = normalizeProxyTarget(
+  const norm = await normalizeProxyTarget(
     {
       address,
       port,
@@ -52,6 +49,11 @@ export async function POST(req: Request, { params }: Params) {
     },
     await panelHost(),
   )
+  // An empty address is fine when the edge tunnel worker is deployed — it
+  // becomes the default backend (norm.address = tunnel host).
+  if (!address && !norm.address) {
+    return Response.json({ error: 'Valid address required' }, { status: 400 })
+  }
   const finalPort = norm.port ?? port
   if (!finalPort || finalPort < 1 || finalPort > 65535) {
     return Response.json({ error: 'Valid port required' }, { status: 400 })

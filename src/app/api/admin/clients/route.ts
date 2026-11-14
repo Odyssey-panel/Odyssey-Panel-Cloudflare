@@ -75,7 +75,7 @@ export async function POST(req: Request) {
       return Response.json({ error: 'Invalid fragment value' }, { status: 400 })
     }
     const secret = generateSecret(body.protocol)
-    const norm = normalizeProxyTarget(
+    const norm = await normalizeProxyTarget(
       {
         address: body.address,
         port: body.port,
