@@ -25,6 +25,9 @@ export async function POST(req: Request) {
   if (!tunnelUrl || !tunnelPath) {
     return Response.json({ error: 'tunnel not deployed yet' }, { status: 400 })
   }
+  // NOTE: on *.workers.dev, Cloudflare blocks worker→worker fetches with
+  // error 1042 — the settings UI therefore probes from the BROWSER directly.
+  // This server-side route still works when the panel runs on a custom domain.
 
   const pool = (body.targets && body.targets.length ? body.targets : (s.tunnelProxyIp || '').split(','))
     .map((t) => t.trim())

@@ -19,12 +19,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   if (url.searchParams.has('suggest')) {
     return jsonSafe({
-      suggestions: [
-        'speed.cloudflare.com',
-        'cloudflare.com',
-        'dash.cloudflare.com',
-        'workers.dev',
-      ],
+      suggestions: ['crypto.cloudflare.com', 'speed.cloudflare.com', 'cloudflare.com'],
     })
   }
 
@@ -60,11 +55,16 @@ export async function GET(req: Request) {
  * each param = key(2BE) len(2BE) value. ECH param key = 5, value = the
  * base64 ECHConfigList (ASCII).
  */
-function extractEch(b64: string): string | null {
+function extractEch(data: string): string | null {
+  // Cloudflare's DoH JSON API returns HTTPS records in presentation format:
+  // "1 . alpn=h2 ech=<base64 ECHConfigList> ipv4hint=..." — some resolvers
+  // return base64 RDATA instead, so try both.
+  const m = /(?:^|\s)ech=([A-Za-z0-9+/=._-]+)/.exec(data || '')
+  if (m) return m[1]
   try {
-    const raw = Buffer.from(b64.replace(/\s+/g, ''), 'base64')
-    if (raw.length < 3) return null
-    let off = 2 // skip svcPriority
+    const raw = Buffer.from((data || '').replace(/\s+/g, ''), 'base64')
+    if (raw.length < 3 || !/^[-A-Za-z0-9+/=\s]+$/.test(data || '')) return null
+    let off = 2 // svcPriority
     const nameLen = raw[off]
     off += 1 + nameLen
     while (off + 4 <= raw.length) {

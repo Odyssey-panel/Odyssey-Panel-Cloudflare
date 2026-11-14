@@ -19,6 +19,8 @@ import { Loader2, Save, Globe2, Languages, Palette, MonitorSmartphone, Sun, Moon
 type Settings = {
   publicUrl: string
   lastOrigin: string
+  tunnelUrl: string
+  tunnelPath: string
   tunnelProxyIp: string
   tunnelBlockAds: string
   tunnelBlockPorn: string
@@ -49,20 +51,39 @@ export function SettingsView() {
   }, [data, form])
 
   const runProbe = async () => {
+    if (!form) return
+    const base = (form.tunnelUrl || '').replace(/\/+$/, '')
+    const path = (form.tunnelPath || '').replace(/^\/+|\/+$/g, '')
+    if (!base || !path) {
+      toast.error(t('Deploy the tunnel first, then test the relays'))
+      return
+    }
     setProbing(true)
     setProbeResults(null)
-    try {
-      const r = await api<{ results: ProxyIpResult[] }>('/api/admin/proxyip', {
-        method: 'POST',
-        body: JSON.stringify({ targets: (form?.tunnelProxyIp || '').split(',').map((s) => s.trim()).filter(Boolean) }),
-      })
-      setProbeResults(r.results || [])
-      toast.success(t('Relay test finished'))
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t('Request failed'))
-    } finally {
-      setProbing(false)
-    }
+    // Browser probes the tunnel directly — Cloudflare blocks worker→worker
+    // fetches on *.workers.dev (error 1042), so the panel server can't.
+    const targets = (form.tunnelProxyIp || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 12)
+    const results: ProxyIpResult[] = await Promise.all(
+      targets.map(async (t) => {
+        const clean = /^[a-zA-Z0-9.:-]+:\d{1,5}$/.test(t) ? t : `${t}:443`
+        const q = `${base}/${path}/probe?target=${encodeURIComponent(clean)}`
+        const one = async (relay: boolean) => {
+          const t0 = performance.now()
+          try {
+            const res = await fetch(`${q}${relay ? '&relay=1' : ''}`, { signal: AbortSignal.timeout(9000) })
+            const j = (await res.json()) as { ok?: boolean; ms?: number }
+            return { ok: !!j.ok, ms: typeof j.ms === 'number' ? j.ms : Math.round(performance.now() - t0) }
+          } catch {
+            return { ok: false, ms: null as number | null }
+          }
+        }
+        const [direct, relay] = await Promise.all([one(false), one(true)])
+        return { target: clean, directMs: direct.ms, directOk: direct.ok, relayMs: relay.ms, relayOk: relay.ok, error: null }
+      }),
+    )
+    setProbeResults(results)
+    toast.success(t('Relay test finished'))
+    setProbing(false)
   }
 
   const save = async () => {
