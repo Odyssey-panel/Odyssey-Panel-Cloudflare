@@ -103,10 +103,21 @@ export type BuiltinFields = {
  * client side for 0-RTT). Empty until the one-click deploy has run.
  */
 export async function tunnelFields(): Promise<BuiltinFields | null> {
+  return tunnelFieldFor('vless')
+}
+
+/**
+ * Protocol-aware tunnel fields: the tunnel dispatches beneath its secret
+ * path — /<secret>/vless, /<secret>/trojan, /<secret>/ss (shadowsocks).
+ */
+export async function tunnelFieldFor(protocol = 'vless'): Promise<BuiltinFields | null> {
   const { getSettings } = await import('./settings')
+  const { TUNNEL_PROTOCOL_PATHS } = await import('./worker-kit')
   const s = await getSettings()
   const url = (s.tunnelUrl || '').trim()
   if (!url) return null
+  const sub = TUNNEL_PROTOCOL_PATHS[protocol as keyof typeof TUNNEL_PROTOCOL_PATHS]
+  const secretPath = (s.tunnelPath || '').replace(/^\/+|\/+$/g, '')
   try {
     const u = new URL(url)
     const host = u.hostname
@@ -117,7 +128,7 @@ export async function tunnelFields(): Promise<BuiltinFields | null> {
       tls: true,
       sni: host,
       host,
-      path: `/${(s.tunnelPath || '').replace(/^\/+|\/+$/g, '')}`,
+      path: sub ? `/${secretPath}/${sub}` : `/${secretPath}`,
     }
   } catch {
     return null

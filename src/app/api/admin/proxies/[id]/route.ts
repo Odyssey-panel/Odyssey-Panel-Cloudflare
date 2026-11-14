@@ -3,6 +3,7 @@ import { requireAuth, jsonSafe } from '@/lib/auth'
 import { buildServerConfig, isValidFragment } from '@/lib/links'
 import { generateSecret } from '@/lib/secrets'
 import { normalizeProxyTarget, panelHost, syncBackend } from '@/lib/backend'
+import { regenerateSubscription } from '@/lib/subcache'
 
 export const runtime = 'nodejs'
 
@@ -54,6 +55,9 @@ export async function PATCH(req: Request, { params }: Params) {
   if (body.rotateSecret === true) {
     data.secret = generateSecret(proxy.protocol)
   }
+  for (const key of ['fp', 'ech', 'plugin'] as const) {
+    if (body[key] !== undefined) data[key] = String(body[key]).trim() || null
+  }
 
   const updated = await db.proxy.update({ where: { id }, data })
   // rebuild server config snapshot
@@ -79,6 +83,7 @@ export async function PATCH(req: Request, { params }: Params) {
   })
   const fresh = await db.proxy.findUnique({ where: { id } })
   syncBackend()
+  await regenerateSubscription(proxy.clientId)
   return jsonSafe({ proxy: fresh })
 }
 
@@ -86,7 +91,9 @@ export async function DELETE(_req: Request, { params }: Params) {
   const unauthorized = await requireAuth()
   if (unauthorized) return unauthorized
   const { id } = await params
+  const proxy = await db.proxy.findUnique({ where: { id }, select: { clientId: true } })
   await db.proxy.delete({ where: { id } })
   syncBackend()
+  if (proxy) await regenerateSubscription(proxy.clientId)
   return Response.json({ ok: true })
 }

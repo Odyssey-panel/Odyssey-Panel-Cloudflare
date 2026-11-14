@@ -7,6 +7,7 @@ import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CopyButton } from '../copy'
 import { useApi } from '../api'
+import { UsageCard } from '../usage-card'
 import { formatBytes } from '@/lib/format'
 import { useLang } from '@/lib/i18n'
 import type { ViewKey } from '../panel'
@@ -391,6 +392,9 @@ export function DashboardView({ onNavigate }: { onNavigate: (v: ViewKey) => void
             ))}
           </CardContent>
         </Card>
+
+        {/* ── Edge quota & latency (self-service watchdog) ── */}
+        <UsageCard />
       </div>
     </div>
   )

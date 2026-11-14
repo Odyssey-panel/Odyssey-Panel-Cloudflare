@@ -21,6 +21,12 @@ export type ProxyLike = {
   flow?: string | null
   /** TLS-fragment string in Marzban order: "<length>,<interval>,<packets>" e.g. "100-200,20-30,tlshello" */
   fragment?: string | null
+  /** TLS ClientHello fingerprint (chrome, safari, ios, android, edge, ...) */
+  fp?: string | null
+  /** Encrypted ClientHello: domain for the ECH config list, or "auto" */
+  ech?: string | null
+  /** Shadowsocks plugin string (v2ray-plugin websocket mode) */
+  plugin?: string | null
 }
 
 /** All protocols the panel can generate accounts/links for. */
@@ -82,7 +88,42 @@ function fragmentParam(p: ProxyLike): string {
   return `fragment=${v}`
 }
 
-/** A quick sanity filter for fragment strings like "100-200,20-30,tlshello". */
+/** TLS fingerprint options carried into share links (client apps read `fp=`). */
+export const FINGERPRINTS = [
+  'chrome',
+  'firefox',
+  'safari',
+  'ios',
+  'android',
+  'edge',
+  '360',
+  'qq',
+  'random',
+] as const
+
+export type Fingerprint = (typeof FINGERPRINTS)[number]
+
+export function isFingerprint(v: string): v is Fingerprint {
+  return (FINGERPRINTS as readonly string[]).includes(v)
+}
+
+/** Default ClientHello fingerprint when none is chosen. */
+export const DEFAULT_FINGERPRINT: Fingerprint = 'chrome'
+
+/**
+ * Build the Shadowsocks v2ray-plugin query string for websocket transports.
+ * Clients append this after the ss:// authority, e.g.
+ * ss://...@host:443/?plugin=v2ray-plugin%3Bmode%3Dwebsocket%3Btls%3Bhost%3D...
+ */
+function ssPluginParam(p: ProxyLike): string {
+  if (p.plugin) return p.plugin
+  if ((p.transport || 'ws') !== 'ws') return ''
+  const parts = ['v2ray-plugin', 'mode=websocket']
+  if (p.tls) parts.push('tls')
+  if (p.host) parts.push(`host=${p.host}`)
+  if (p.path && p.path !== '/') parts.push(`path=${p.path}`)
+  return parts.join(';')
+}
 export function isValidFragment(v: string): boolean {
   const s = (v || '').trim().replace(/\s+/g, '')
   if (!s) return true // empty = no fragment
@@ -118,7 +159,8 @@ export function buildShareLink(p: ProxyLike): string {
     if (p.host) q.push(`host=${encodeURIComponent(p.host)}`)
     if (transport === 'ws' && p.path) q.push(`path=${encodeURIComponent(p.path)}`)
     if (transport === 'grpc' && p.path) q.push(`serviceName=${encodeURIComponent(p.path)}`)
-    q.push('fp=chrome')
+    if (p.fp || p.ech) q.push(`fp=${encodeURIComponent(p.fp || DEFAULT_FINGERPRINT)}`)
+    if (p.ech) q.push(`ech=${encodeURIComponent(p.ech)}`)
     const frag = fragmentParam(p)
     if (frag) q.push(frag)
     return `vless://${p.secret}@${host}:${p.port}?${q.join('&')}#${remark}`
@@ -139,7 +181,8 @@ export function buildShareLink(p: ProxyLike): string {
       path: transport === 'ws' ? p.path || '' : '',
       tls: p.tls ? 'tls' : '',
       sni: p.sni || '',
-      fp: 'chrome',
+      fp: p.fp || DEFAULT_FINGERPRINT,
+      ech: p.ech || '',
     }
     return `vmess://${b64(JSON.stringify(obj))}`
   }
@@ -149,6 +192,8 @@ export function buildShareLink(p: ProxyLike): string {
     if (p.host) q.push(`host=${encodeURIComponent(p.host)}`)
     q.push(`type=${transport}`)
     if (transport === 'ws' && p.path) q.push(`path=${encodeURIComponent(p.path)}`)
+    if (p.fp || p.ech) q.push(`fp=${encodeURIComponent(p.fp || DEFAULT_FINGERPRINT)}`)
+    if (p.ech) q.push(`ech=${encodeURIComponent(p.ech)}`)
     const frag = fragmentParam(p)
     if (frag) q.push(frag)
     return `trojan://${encodeURIComponent(p.secret)}@${host}:${p.port}?${q.join('&')}#${remark}`
@@ -156,7 +201,9 @@ export function buildShareLink(p: ProxyLike): string {
 
   if (p.protocol === 'shadowsocks') {
     const userInfo = b64(`aes-256-gcm:${p.secret}`)
-    return `ss://${userInfo}@${host}:${p.port}#${remark}`
+    const plugin = ssPluginParam(p)
+    const query = plugin ? `/?plugin=${encodeURIComponent(plugin)}` : ''
+    return `ss://${userInfo}@${host}:${p.port}${query}#${remark}`
   }
 
   if (p.protocol === 'hysteria2') {
@@ -339,14 +386,15 @@ function proxyYaml(p: ProxyLike): string | null {
   if (p.protocol === 'vless') {
     lines.push(`    type: vless`, `    uuid: ${p.secret}`, `    tls: ${p.tls}`)
     if (p.sni) lines.push(`    servername: "${escapeYaml(p.sni)}"`)
-    lines.push(`    network: ${t}`)
+    lines.push(`    network: ${t}`, `    client-fingerprint: ${p.fp || 'chrome'}`)
     if (p.flow) lines.push(`    flow: ${p.flow}`)
+    if (p.ech) lines.push(`    ech-opts:`, `      enabled: true`, `      config: "${escapeYaml(p.ech)}"`)
     if (t === 'ws') {
       lines.push(`    ws-opts:`, `      path: "${escapeYaml(p.path || '/')}"`)
       if (p.host) lines.push(`      headers:`, `        Host: "${escapeYaml(p.host)}"`)
     }
   } else if (p.protocol === 'vmess') {
-    lines.push(`    type: vmess`, `    uuid: ${p.secret}`, `    alterId: 0`, `    cipher: auto`, `    tls: ${p.tls}`)
+    lines.push(`    type: vmess`, `    uuid: ${p.secret}`, `    alterId: 0`, `    cipher: auto`, `    tls: ${p.tls}`, `    client-fingerprint: ${p.fp || 'chrome'}`)
     if (p.sni) lines.push(`    servername: "${escapeYaml(p.sni)}"`)
     lines.push(`    network: ${t}`)
     if (t === 'ws') {
@@ -354,11 +402,16 @@ function proxyYaml(p: ProxyLike): string | null {
       if (p.host) lines.push(`      headers:`, `        Host: "${escapeYaml(p.host)}"`)
     }
   } else if (p.protocol === 'trojan') {
-    lines.push(`    type: trojan`, `    password: "${escapeYaml(p.secret)}"`, `    tls: ${p.tls}`)
+    lines.push(`    type: trojan`, `    password: "${escapeYaml(p.secret)}"`, `    tls: ${p.tls}`, `    client-fingerprint: ${p.fp || 'chrome'}`)
     if (p.sni) lines.push(`    sni: "${escapeYaml(p.sni)}"`)
     if (t === 'ws') lines.push(`    network: ws`, `    ws-opts:`, `      path: "${escapeYaml(p.path || '/')}"`)
   } else if (p.protocol === 'shadowsocks') {
     lines.push(`    type: ss`, `    cipher: aes-256-gcm`, `    password: "${escapeYaml(p.secret)}"`)
+    const plugin = p.plugin || ((p.transport || 'ws') === 'ws' ? ['v2ray-plugin', 'mode=websocket', p.tls ? 'tls' : '', p.host ? `host=${p.host}` : '', p.path && p.path !== '/' ? `path=${p.path}` : ''].filter(Boolean).join(';') : '')
+    if (plugin) lines.push(`    plugin: v2ray-plugin`, `    plugin-opts:`, `      mode: websocket`)
+    if (p.tls && plugin) lines.push(`      tls: true`)
+    if (p.host && plugin) lines.push(`      host: "${escapeYaml(p.host)}"`)
+    if (p.path && p.path !== '/' && plugin) lines.push(`      path: "${escapeYaml(p.path)}"`)
   } else if (p.protocol === 'hysteria2') {
     lines.push(`    type: hysteria2`, `    password: "${escapeYaml(p.secret)}"`)
     if (p.sni) lines.push(`    sni: "${escapeYaml(p.sni)}"`)
@@ -412,6 +465,10 @@ function buildSingBox(proxies: ProxyLike[]) {
         enabled: true,
         server_name: p.sni || p.address || '',
         insecure: false,
+        ...(p.fp
+          ? { utls: { enabled: true, fingerprint: p.fp } }
+          : { utls: { enabled: true, fingerprint: 'chrome' } }),
+        ...(p.ech ? { ech: { enabled: true, config: p.ech } } : {}),
       }
     }
     if (t === 'ws' && ['vless', 'vmess', 'trojan'].includes(p.protocol)) {

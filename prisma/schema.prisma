@@ -18,6 +18,24 @@ model Client {
   usedBytes  BigInt   @default(0)
   // null = never expires
   expiresAt DateTime?
+  // "start from first connection": expiry anchored to startedAt when set
+  startedAt DateTime?
+  // request quota (0 = unlimited)
+  usedRequests Int    @default(0)
+  requestLimit Int    @default(0)
+  // concurrent device (unique IP) cap, 0 = unlimited
+  ipLimit      Int    @default(0)
+  // automatic quota reset cycles in days, 0 = never
+  resetBytesDays    Int      @default(0)
+  resetRequestsDays Int      @default(0)
+  lastBytesResetAt    DateTime?
+  lastRequestsResetAt DateTime?
+  // allow the "direct" (no-proxy) config for this user
+  directEnabled Boolean @default(true)
+  // TLS ClientHello fingerprint carried into generated links
+  fingerprint String @default("chrome")
+  // operator/ISP tag (Mokhaberat, Irancell, ...)
+  isp String?
   status    String   @default("active") // active | disabled
   subToken  String   @unique
   proxies   Proxy[]
@@ -42,6 +60,9 @@ model Proxy {
   tls          Boolean  @default(true)
   flow         String?
   fragment     String? // TLS-fragment "<length>,<interval>,<packets>" (anti-censorship)
+  fp           String? // TLS ClientHello fingerprint override (chrome, ios, ...)
+  ech          String? // Encrypted ClientHello config (public name / resolver)
+  plugin       String? // e.g. v2ray-plugin websocket parameters for shadowsocks
   serverConfig String? // JSON server-side inbound config for xray/sing-box
   createdAt    DateTime @default(now())
 }

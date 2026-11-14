@@ -3,6 +3,7 @@ import { requireAuth, jsonSafe } from '@/lib/auth'
 import { buildServerConfig, isValidFragment } from '@/lib/links'
 import { generateSecret, validateProtocol } from '@/lib/secrets'
 import { normalizeProxyTarget, panelHost, syncBackend } from '@/lib/backend'
+import { regenerateSubscription } from '@/lib/subcache'
 
 export const runtime = 'nodejs'
 
@@ -19,6 +20,9 @@ type ProxyBody = {
   transport?: string
   tls?: boolean
   fragment?: string
+  fp?: string
+  ech?: string
+  plugin?: string
 }
 
 export async function POST(req: Request, { params }: Params) {
@@ -80,6 +84,9 @@ export async function POST(req: Request, { params }: Params) {
     transport: norm.transport ?? 'ws',
     tls: norm.tls ?? true,
     fragment: body.fragment?.trim() || null,
+    fp: body.fp?.trim() || null,
+    ech: body.ech?.trim() || null,
+    plugin: body.plugin?.trim() || null,
   }
 
   const proxy = await db.proxy.create({
@@ -96,9 +103,13 @@ export async function POST(req: Request, { params }: Params) {
       transport: proxyLike.transport,
       tls: proxyLike.tls,
       fragment: proxyLike.fragment,
+      fp: proxyLike.fp,
+      ech: proxyLike.ech,
+      plugin: proxyLike.plugin,
       serverConfig: JSON.stringify(buildServerConfig(proxyLike)),
     },
   })
   syncBackend()
+  await regenerateSubscription(id)
   return jsonSafe({ proxy }, { status: 201 })
 }

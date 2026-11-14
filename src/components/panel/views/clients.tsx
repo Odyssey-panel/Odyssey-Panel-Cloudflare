@@ -66,6 +66,7 @@ import {
   Activity,
   CheckCircle2,
   XCircle,
+  ExternalLink,
 } from 'lucide-react'
 import { WORKER_STEPS_FA } from '@/lib/worker-kit'
 
@@ -297,14 +298,63 @@ export function ClientsView() {
   const [edit, setEdit] = useState<ClientRow | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ClientRow | null>(null)
   const [qr, setQr] = useState<{ open: boolean; value: string; name: string }>({ open: false, value: '', name: '' })
+  // status filter + sorting + bulk selection (batch operations)
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'disabled' | 'expired'>('all')
+  const [sortBy, setSortBy] = useState<'newest' | 'name' | 'usage' | 'remaining'>('newest')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
   const { t, lang } = useLang()
 
   const clients = useMemo(() => {
-    const list = data?.clients ?? []
-    if (!search.trim()) return list
-    const q = search.toLowerCase()
-    return list.filter((c) => c.name.toLowerCase().includes(q) || (c.note || '').toLowerCase().includes(q))
-  }, [data, search])
+    let list = data?.clients ?? []
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      list = list.filter((c) => c.name.toLowerCase().includes(q) || (c.note || '').toLowerCase().includes(q))
+    }
+    if (statusFilter !== 'all') {
+      list = list.filter((c) =>
+        statusFilter === 'expired'
+          ? c.status === 'active' && c.expiresAt && new Date(c.expiresAt).getTime() <= Date.now()
+          : c.status === statusFilter,
+      )
+    }
+    const sorted = [...list]
+    if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name))
+    else if (sortBy === 'usage') sorted.sort((a, b) => Number(b.usedBytes) - Number(a.usedBytes))
+    else if (sortBy === 'remaining')
+      sorted.sort((a, b) => (a.expiresAt ? a.expiresAt.getTime() : Infinity) - (b.expiresAt ? b.expiresAt.getTime() : Infinity))
+    return sorted
+  }, [data, search, statusFilter, sortBy])
+
+  const isExpired = (c: ClientRow) => Boolean(c.expiresAt && c.expiresAt.getTime() <= Date.now())
+
+  const toggleSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const runBulk = async (action: 'enable' | 'disable' | 'delete' | 'resetTraffic' | 'resetRequests' | 'extendDays', days?: number) => {
+    if (!selected.size) return
+    if (action === 'delete' && !confirm(t('Delete {n} selected users and all their configs?', { n: selected.size }))) return
+    setBulkBusy(true)
+    try {
+      const res = await api<{ affected: number }>('/api/admin/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ ids: Array.from(selected), action, days }),
+      })
+      toast.success(t('{n} users updated', { n: res.affected }))
+      setSelected(new Set())
+      await reload()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t('Request failed'))
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   const act = async (fn: () => Promise<unknown>, successMsg?: string) => {
     try {
@@ -354,6 +404,64 @@ export function ClientsView() {
         />
       </div>
 
+      {/* Status filter + sorting — quick triage over the subscriber list */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+          <SelectTrigger className="h-8 w-[150px] text-xs" aria-label={t('Filter by status')}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('All users')}</SelectItem>
+            <SelectItem value="active">{t('Active')}</SelectItem>
+            <SelectItem value="disabled">{t('Disabled')}</SelectItem>
+            <SelectItem value="expired">{t('Expired')}</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+          <SelectTrigger className="h-8 w-[170px] text-xs" aria-label={t('Sort users')}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="newest">{t('Newest first')}</SelectItem>
+            <SelectItem value="name">{t('Name (A→Z)')}</SelectItem>
+            <SelectItem value="usage">{t('Highest usage')}</SelectItem>
+            <SelectItem value="remaining">{t('Expiring soonest')}</SelectItem>
+          </SelectContent>
+        </Select>
+        <button
+          type="button"
+          className="ms-auto text-xs font-medium text-muted-foreground hover:text-foreground"
+          onClick={() => setSelected(selected.size ? new Set() : new Set(clients.map((c) => c.id)))}
+        >
+          {selected.size ? t('Clear selection ({n})', { n: selected.size }) : t('Select all ({n})', { n: clients.length })}
+        </button>
+      </div>
+
+      {/* Bulk actions — appear once rows are selected */}
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/[0.04] p-2.5">
+          <span className="px-1 text-xs font-semibold">{t('{n} selected', { n: selected.size })}</span>
+          <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => void runBulk('enable')}>
+            <CheckCircle2 className="h-3.5 w-3.5" /> {t('Enable')}
+          </Button>
+          <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => void runBulk('disable')}>
+            <XCircle className="h-3.5 w-3.5" /> {t('Disable')}
+          </Button>
+          <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => void runBulk('resetTraffic')}>
+            <RotateCcw className="h-3.5 w-3.5" /> {t('Reset traffic')}
+          </Button>
+          <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => void runBulk('resetRequests')}>
+            <RotateCcw className="h-3.5 w-3.5" /> {t('Reset requests')}
+          </Button>
+          <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => void runBulk('extendDays', 30)}>
+            <CalendarPlus className="h-3.5 w-3.5" /> {t('+30 days')}
+          </Button>
+          <Button size="sm" variant="destructive" disabled={bulkBusy} onClick={() => void runBulk('delete')}>
+            <Trash2 className="h-3.5 w-3.5" /> {t('Delete')}
+          </Button>
+        </div>
+      )}
+
       {loading && !data ? (
         <div className="space-y-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-24" />)}</div>
       ) : clients.length === 0 ? (
@@ -375,6 +483,13 @@ export function ClientsView() {
                   {/* Header — avatar + name + badges ONLY. No buttons beside the
                       name, so nothing can ever overlap it (mobile RTL bug). */}
                   <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 shrink-0 cursor-pointer accent-primary"
+                      checked={selected.has(c.id)}
+                      onChange={() => toggleSelected(c.id)}
+                      aria-label={t('Select {name}', { name: c.name })}
+                    />
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl rounded-tr-sm bg-gradient-to-br from-odyssey-navy to-odyssey-cyan text-sm font-bold text-white">
                       {c.name.slice(0, 1).toUpperCase()}
                     </span>
@@ -553,6 +668,18 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
   const [host, setHost] = useState('')
   const [tls, setTls] = useState(true)
   const [busy, setBusy] = useState(false)
+  // edge-tunnel batch generation: several protocols at once, N variants,
+  // address flavors (domain / ipv4 / ipv6) and TLS fingerprint
+  const [tunnelProtos, setTunnelProtos] = useState<Set<string>>(new Set(['vless']))
+  const [requestLimit, setRequestLimit] = useState('0')
+  const [ipLimit, setIpLimit] = useState('0')
+  const [resetBytesDays, setResetBytesDays] = useState('0')
+  const [resetRequestsDays, setResetRequestsDays] = useState('0')
+  const [fingerprint, setFingerprint] = useState<string>('chrome')
+  const [addrDomain, setAddrDomain] = useState(true)
+  const [addrV4, setAddrV4] = useState(false)
+  const [addrV6, setAddrV6] = useState(false)
+  const [genCount, setGenCount] = useState('1')
   const { t } = useLang()
 
   const isMtprotoC = protocol === 'mtproto'
@@ -577,6 +704,10 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
       toast.error(t('Pick a worker first (or register one in Nodes & workers)'))
       return
     }
+    if (withProxy && backendMode === 'builtin' && tunnelProtos.size === 0) {
+      toast.error(t('Pick at least one protocol'))
+      return
+    }
     setBusy(true)
     try {
       await api('/api/admin/clients', {
@@ -586,16 +717,35 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
           trafficGb: Number(trafficGb) || 0,
           days: Number(days) || 0,
           note: note.trim() || undefined,
-          protocol: withProxy ? protocol : undefined,
-          address: withProxy ? fields.address : undefined,
-          port: withProxy ? fields.port : undefined,
-          sni: withProxy ? fields.sni : undefined,
-          transport: withProxy && !isMtprotoC && !isSingboxC ? fields.transport : undefined,
-          path: withProxy && !isMtprotoC && !isSingboxC ? fields.path : undefined,
-          host: withProxy && !isMtprotoC && !isSingboxC ? fields.host : undefined,
-          tls: withProxy && !isMtprotoC && !isSingboxC ? fields.tls : true,
-          // Fragment goes ONLY onto this one config, right at creation.
-          fragment: withProxy && showFragmentC && fragmentOn ? fragment.trim() || undefined : undefined,
+          // quotas (0 = unlimited) + reset cycles
+          requestLimit: Number(requestLimit) || 0,
+          ipLimit: Number(ipLimit) || 0,
+          resetBytesDays: Number(resetBytesDays) || 0,
+          resetRequestsDays: Number(resetRequestsDays) || 0,
+          fingerprint,
+          // edge tunnel: generate one account per selected protocol (+ variants)
+          ...(withProxy && backendMode === 'builtin'
+            ? {
+                protocols: Array.from(tunnelProtos),
+                count: Math.max(1, Number(genCount) || 1),
+                addressTypes: [
+                  addrDomain && 'domain',
+                  addrV4 && 'ipv4',
+                  addrV6 && 'ipv6',
+                ].filter(Boolean) as Array<'domain' | 'ipv4' | 'ipv6'>,
+                fragment: fragmentOn ? fragment.trim() || undefined : undefined,
+              }
+            : {
+                protocol: withProxy ? protocol : undefined,
+                address: withProxy ? fields.address : undefined,
+                port: withProxy ? fields.port : undefined,
+                sni: withProxy ? fields.sni : undefined,
+                transport: withProxy && !isMtprotoC && !isSingboxC ? fields.transport : undefined,
+                path: withProxy && !isMtprotoC && !isSingboxC ? fields.path : undefined,
+                host: withProxy && !isMtprotoC && !isSingboxC ? fields.host : undefined,
+                tls: withProxy && !isMtprotoC && !isSingboxC ? fields.tls : true,
+                fragment: withProxy && showFragmentC && fragmentOn ? fragment.trim() || undefined : undefined,
+              }),
         }),
       })
       toast.success(
@@ -655,6 +805,22 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
               <div className="space-y-1.5">
                 <Label htmlFor="c-note">{t('Note')}</Label>
                 <Input id="c-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('friend, family, …')} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="c-requests">{t('Request limit (0 = unlimited)')}</Label>
+                <Input id="c-requests" type="number" min="0" value={requestLimit} onChange={(e) => setRequestLimit(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="c-iplimit">{t('Device limit (0 = unlimited)')}</Label>
+                <Input id="c-iplimit" type="number" min="0" value={ipLimit} onChange={(e) => setIpLimit(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="c-resetbytes">{t('Auto reset traffic (days, 0 = never)')}</Label>
+                <Input id="c-resetbytes" type="number" min="0" value={resetBytesDays} onChange={(e) => setResetBytesDays(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="c-resetreq">{t('Auto reset requests (days, 0 = never)')}</Label>
+                <Input id="c-resetreq" type="number" min="0" value={resetRequestsDays} onChange={(e) => setResetRequestsDays(e.target.value)} />
               </div>
             </div>
           </section>
@@ -725,7 +891,81 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                   </div>
                 )}
 
-                {/* Protocol — quick chips instead of a dropdown */}
+                {/* Edge tunnel (builtin): multi-protocol batch generation —
+                    vless + trojan + shadowsocks in one click, plus optional
+                    per-protocol variants and TLS fingerprint. */}
+                {backendMode === 'builtin' ? (
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label>{t('Protocols (multi-select)')}</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {['vless', 'trojan', 'shadowsocks'].map((p) => {
+                          const on = tunnelProtos.has(p)
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() =>
+                                setTunnelProtos((prev) => {
+                                  const next = new Set(prev)
+                                  if (next.has(p)) next.delete(p)
+                                  else next.add(p)
+                                  return next
+                                })
+                              }
+                              className={`rounded-lg border px-2.5 py-1.5 font-mono text-xs font-medium uppercase transition-colors ${
+                                on
+                                  ? 'border-cyan-400/40 bg-cyan-400/10 text-foreground'
+                                  : 'border-border/60 text-muted-foreground hover:bg-white/[0.04]'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t('Every selected protocol is generated on the edge tunnel — no VPS needed.')}
+                      </p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label>{t('Address variants')}</Label>
+                        <div className="flex flex-wrap gap-3 pt-1">
+                          {([
+                            ['domain', addrDomain, setAddrDomain, t('Domain')],
+                            ['ipv4', addrV4, setAddrV4, t('IPv4')],
+                            ['ipv6', addrV6, setAddrV6, t('IPv6')],
+                          ] as Array<[string, boolean, (v: boolean) => void, string]>).map(([key, val, setter, label]) => (
+                            <label key={key} className="flex cursor-pointer items-center gap-1.5 text-xs">
+                              <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={val} onChange={(e) => setter(e.target.checked)} />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">{t('Some ISPs route IPv4/IPv6 differently — extra variants help clients find the fastest path.')}</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="c-count">{t('Variants per protocol')}</Label>
+                          <Input id="c-count" type="number" min="1" max="8" value={genCount} onChange={(e) => setGenCount(e.target.value)} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>{t('TLS fingerprint')}</Label>
+                          <Select value={fingerprint} onValueChange={setFingerprint}>
+                            <SelectTrigger aria-label={t('TLS fingerprint')}><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', '360', 'qq', 'random'].map((f) => (
+                                <SelectItem key={f} value={f}>{f}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                /* Protocol — quick chips instead of a dropdown */
                 <div className="space-y-1.5">
                   <Label>{t('Protocol')}</Label>
                   <div className="flex flex-wrap gap-1.5">
@@ -750,6 +990,7 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                     </p>
                   )}
                 </div>
+                )}
 
                 {/* Where the config runs — always visible so the mode can be
                     switched back and forth (was locked once "own" was chosen) */}
@@ -1054,6 +1295,18 @@ function DetailDialog({
             <Link2 className="h-4 w-4 text-primary" /> {t('Subscription')}
           </div>
           <CopyField label={t('Subscription link')} value={sub} />
+          <div className="flex items-center gap-2">
+            <a
+              href={`${originBase()}/s/${client.subToken}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              {t('Status page (user self-service)')}
+            </a>
+            <CopyButton value={`${originBase()}/s/${client.subToken}`} label={t('Copy')} className="shrink-0" size="sm" />
+          </div>
           {client.proxies.length > 0 ? (
             <div className="space-y-1.5" dir="ltr">
               <div className="text-xs font-medium text-muted-foreground" dir="rtl">

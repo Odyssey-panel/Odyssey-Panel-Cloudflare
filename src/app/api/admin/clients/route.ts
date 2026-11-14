@@ -1,10 +1,9 @@
 import { db } from '@/lib/db'
 import { requireAuth, jsonSafe } from '@/lib/auth'
 import { randomBytes } from 'node:crypto'
-import { buildServerConfig } from '@/lib/links'
-import { generateSecret, validateProtocol } from '@/lib/secrets'
-import { isValidFragment } from '@/lib/links'
-import { normalizeProxyTarget, panelHost, syncBackend } from '@/lib/backend'
+import { generateAccounts, persistAccounts } from '@/lib/accounts'
+import { regenerateSubscription } from '@/lib/subcache'
+import { syncBackend } from '@/lib/backend'
 
 export const runtime = 'nodejs'
 
@@ -14,16 +13,26 @@ type CreateBody = {
   trafficGb?: number // 0 = unlimited
   days?: number // days from now; 0/null = never
   expiresAt?: string | null
-  // optional first proxy account
-  protocol?: string
-  address?: string
-  port?: number
-  sni?: string
-  transport?: string
-  host?: string
-  path?: string
-  tls?: boolean
+  // quotas (0 = unlimited)
+  requestLimit?: number
+  ipLimit?: number
+  // auto reset cycles in days (0 = never)
+  resetBytesDays?: number
+  resetRequestsDays?: number
+  // allow the direct (no-proxy) config for this user
+  directEnabled?: boolean
+  // TLS ClientHello fingerprint + ISP tag
+  fingerprint?: string
+  isp?: string
+  // expiry anchored to the first connection instead of creation time
+  startOnFirstConnection?: boolean
+  // account generation
+  protocols?: string[] // vless | trojan | shadowsocks (multi-select)
+  workers?: string[] // tunnel endpoint urls (multi-location)
+  addressTypes?: Array<'domain' | 'ipv4' | 'ipv6'>
+  count?: number
   fragment?: string
+  sni?: string
 }
 
 export async function GET() {
@@ -63,66 +72,41 @@ export async function POST(req: Request) {
       note: body.note || null,
       limitBytes: BigInt(Math.round((body.trafficGb ?? 0) * 1024 ** 3)),
       expiresAt,
+      requestLimit: Math.max(0, Math.round(body.requestLimit ?? 0)),
+      ipLimit: Math.max(0, Math.round(body.ipLimit ?? 0)),
+      resetBytesDays: Math.max(0, Math.round(body.resetBytesDays ?? 0)),
+      resetRequestsDays: Math.max(0, Math.round(body.resetRequestsDays ?? 0)),
+      directEnabled: body.directEnabled !== false,
+      fingerprint: (body.fingerprint || 'chrome').trim(),
+      isp: body.isp?.trim() || null,
       subToken,
     },
   })
 
-  // Optionally generate the first proxy account right away
-  if (body.protocol && body.address && body.address.trim()) {
-    const protoErr = validateProtocol(body.protocol)
-    if (protoErr) return Response.json({ error: protoErr }, { status: 400 })
-    if (body.fragment && !isValidFragment(body.fragment)) {
-      return Response.json({ error: 'Invalid fragment value' }, { status: 400 })
-    }
-    const secret = generateSecret(body.protocol)
-    const norm = await normalizeProxyTarget(
-      {
-        address: body.address,
-        port: body.port,
+  let generationError: string | null = null
+  const requested = (body.protocols || []).filter(Boolean)
+  if (requested.length) {
+    try {
+      const accounts = await generateAccounts({
+        name,
+        protocols: requested,
+        workers: body.workers || [],
+        addressTypes: body.addressTypes || [],
+        count: body.count,
+        fragment: body.fragment || null,
+        fingerprint: (body.fingerprint || 'chrome').trim(),
         sni: body.sni,
-        host: body.host,
-        path: body.path,
-        transport: body.transport,
-        tls: body.tls,
-      },
-      await panelHost(),
-    )
-    const proxyLike = {
-      protocol: body.protocol,
-      // every Odyssey config is named "Odyssey-<username>"
-      remark: `Odyssey-${name}`,
-      address: norm.address,
-      port: norm.port ?? 443,
-      secret,
-      sni: norm.sni ?? null,
-      host: norm.host ?? null,
-      path: norm.path ?? '/',
-      transport: norm.transport ?? 'ws',
-      tls: norm.tls ?? true,
-      fragment: body.fragment?.trim() || null,
+      })
+      await persistAccounts(client.id, accounts)
+    } catch (e) {
+      generationError = e instanceof Error ? e.message : 'Account generation failed'
     }
-    await db.proxy.create({
-      data: {
-        clientId: client.id,
-        protocol: proxyLike.protocol,
-        remark: proxyLike.remark,
-        address: proxyLike.address,
-        port: proxyLike.port,
-        secret,
-        sni: proxyLike.sni,
-        host: proxyLike.host,
-        path: proxyLike.path,
-        transport: proxyLike.transport,
-        tls: proxyLike.tls,
-        fragment: proxyLike.fragment,
-        serverConfig: JSON.stringify(buildServerConfig(proxyLike)),
-      },
-    })
   }
 
-  const created = await db.client.findUnique({ where: { id: client.id }, include: { proxies: true } })
+  await regenerateSubscription(client.id)
   syncBackend()
-  return jsonSafe({ client: created }, { status: 201 })
+  const created = await db.client.findUnique({ where: { id: client.id }, include: { proxies: true } })
+  return jsonSafe({ client: created, generationError }, { status: 201 })
 }
 
 export async function DELETE(req: Request) {
@@ -131,8 +115,9 @@ export async function DELETE(req: Request) {
   if (unauthorized) return unauthorized
   const { ids } = (await req.json().catch(() => ({}))) as { ids?: string[] }
   if (!ids?.length) return Response.json({ error: 'ids required' }, { status: 400 })
+  const doomed = await db.client.findMany({ where: { id: { in: ids } }, select: { subToken: true } })
   await db.client.deleteMany({ where: { id: { in: ids } } })
+  await Promise.allSettled(doomed.map((c) => import('@/lib/subcache').then((m) => m.invalidateSubscription(c.subToken))))
   syncBackend()
   return Response.json({ ok: true })
 }
-

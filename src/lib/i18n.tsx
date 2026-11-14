@@ -522,6 +522,68 @@ const FA: Record<string, string> = {
   Failed: 'ناموفق بود',
   'Request failed': 'درخواست ناموفق بود',
   'Request failed ({status})': 'درخواست ناموفق بود ({status})',
+
+  // ── Edge tunnel multi-protocol + quotas + bulk ops ────────────────────────
+  'Protocols (multi-select)': 'پروتکل‌ها (چندگزینه‌ای)',
+  'Every selected protocol is generated on the edge tunnel — no VPS needed.':
+    'هر پروتکل انتخاب‌شده روی تونل edge ساخته می‌شود — بدون نیاز به VPS',
+  'Address variants': 'نوع آدرس‌ها',
+  IPv4: 'آی‌پی4',
+  IPv6: 'آی‌پی6',
+  Workers: 'ورکرها',
+  'Some ISPs route IPv4/IPv6 differently — extra variants help clients find the fastest path.':
+    'بعضی اپراتورها مسیر IPv4/IPv6 را متفاوت روت می‌کنند — نسخه‌های اضافه کمک می‌کنند کاربر سریع‌ترین مسیر را پیدا کند',
+  'Variants per protocol': 'تعداد برای هر پروتکل',
+  'TLS fingerprint': 'اثرانگشت TLS',
+  'Pick at least one protocol': 'حداقل یک پروتکل انتخاب کن',
+  'Request limit (0 = unlimited)': 'سقف درخواست (۰ = نامحدود)',
+  'Device limit (0 = unlimited)': 'سقف دستگاه (۰ = نامحدود)',
+  'Auto reset traffic (days, 0 = never)': 'ریست خودکار حجم (روز، ۰ = هرگز)',
+  'Auto reset requests (days, 0 = never)': 'ریست خودکار درخواست (روز، ۰ = هرگز)',
+  'Status page (user self-service)': 'صفحهٔ وضعیت (سلف‌سرویس کاربر)',
+
+  // ── Filters / sorting / bulk ─────────────────────────────────────────────
+  'Filter by status': 'فیلتر وضعیت',
+  'All users': 'همهٔ کاربران',
+  'Sort users': 'مرتب‌سازی',
+  'Newest first': 'جدیدترین',
+  'Name (A→Z)': 'نام (الفبا)',
+  'Highest usage': 'بیشترین مصرف',
+  'Expiring soonest': 'نزدیک‌ترین انقضا',
+  'Select all ({n})': 'انتخاب همه ({n})',
+  'Clear selection ({n})': 'پاک‌کردن انتخاب ({n})',
+  'Select {name}': 'انتخاب {name}',
+  '{n} selected': '{n} مورد انتخاب شد',
+  '{n} users updated': '{n} کاربر به‌روزرسانی شد',
+  'Delete {n} selected users and all their configs?': '{n} کاربر انتخاب‌شده و همهٔ کانفیگ‌هایشان حذف شود؟',
+
+  // ── Usage monitor / ping / backup ────────────────────────────────────────
+  'Edge quota & latency': 'سهمیهٔ لبه و تأخیر',
+  'Daily request usage against the free-plan cap, plus a two-hop latency probe.':
+    'مصرف روزانهٔ درخواست‌ها نسبت به سقف پلن رایگان، به‌همراه تست تأخیر دو مرحله‌ای',
+  'Requests today': 'درخواست‌های امروز',
+  'Approaching the free daily cap — subscription traffic may be throttled tomorrow.':
+    'به سقف روزانهٔ رایگان نزدیک می‌شویم — ممکن است فردا ترافیک ساب محدود شود',
+  'Subscription refreshes': 'به‌روزرسانی ساب',
+  'all-time': 'کل',
+  Configs: 'کانفیگ‌ها',
+  'Cloudflare token (optional, exact analytics)': 'توکن کلادفلر (اختیاری، آمار دقیق)',
+  Load: 'بارگذاری',
+  'Ping test': 'تست پینگ',
+  'Live Cloudflare analytics loaded': 'آمار زندهٔ کلادفلر بارگذاری شد',
+  'Cloudflare (exact, last 24h)': 'کلادفلر (دقیق، ۲۴ ساعت گذشته)',
+  'Panel → Internet': 'پنل → اینترنت',
+  'Backup & restore': 'پشتیبان‌گیری و بازیابی',
+  'Export every user, config and setting as JSON — restore on any deployment.':
+    'خروجی JSON از همهٔ کاربران، کانفیگ‌ها و تنظیمات — بازیابی روی هر دیپلوی',
+  'Download backup': 'دانلود پشتیبان',
+  'Backup downloaded': 'پشتیبان دانلود شد',
+  'Paste a backup JSON to restore': 'JSON پشتیبان را برای بازیابی بچسبان',
+  Restore: 'بازیابی',
+  'Restore users from this backup? Existing users with the same name are skipped.':
+    'کاربران این پشتیبان بازیابی شوند؟ کاربران هم‌نام رد می‌شوند',
+  '{restored} users restored, {skipped} skipped': '{restored} کاربر بازیابی شد، {skipped} رد شد',
+  'Restore failed': 'بازیابی ناموفق بود',
 }
 
 type LangContextValue = {

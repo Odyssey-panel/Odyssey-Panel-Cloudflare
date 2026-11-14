@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CopyField } from '../copy'
 import { api, useApi } from '../api'
+import { BackupCard } from '../backup-card'
 import { toast } from 'sonner'
 import { useTheme } from 'next-themes'
 import { useLang, type Lang } from '@/lib/i18n'
@@ -204,6 +205,9 @@ export function SettingsView() {
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Backup & restore ── */}
+      <BackupCard />
     </div>
   )
 }

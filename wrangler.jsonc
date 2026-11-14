@@ -20,8 +20,12 @@
       "database_name": "odyssey-db",
       // Real database created on the Odyssey-panel account (region APAC).
       "database_id": "51ea2034-7d7d-47a9-aaeb-26efa7441f88",
-      "migrations_dir": "migrations"
+            "migrations_dir": "migrations"
     }
+  ],
+  "kv_namespaces": [
+    { "binding": "KV", "id": "bd7f17c9432043d1b585dc4889e74a51" },
+    { "binding": "NEXT_INC_CACHE_KV", "id": "77b61c67330e46f5abcd12d16f86dcdd" }
   ],
   "observability": {
     "enabled": true

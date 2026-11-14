@@ -1,7 +1,8 @@
 import { db } from '@/lib/db'
 import { requireAuth, jsonSafe } from '@/lib/auth'
-import { WORKER_CODE } from '@/lib/worker-kit'
+import { workerCodeFor } from '@/lib/worker-kit'
 import { setSettings, getSetting } from '@/lib/settings'
+import { createHash } from 'node:crypto'
 
 export const runtime = 'nodejs'
 
@@ -94,15 +95,21 @@ export async function POST(req: Request) {
       return Response.json({ error: 'Could not resolve the workers.dev subdomain' }, { status: 502 })
     }
 
-    // 3) Tunnel bindings: UUID allowlist + secret path + optional proxy relay
-    const uuidRows = await db.proxy.findMany({
-      where: { protocol: 'vless' },
-      select: { secret: true },
+    // 3) Tunnel bindings: credential allowlist + secret path + optional relay
+    //    vless → uuid list; trojan → sha224(password) hex; ss enforces its own
+    //    password via AEAD (no list needed)
+    const credRows = await db.proxy.findMany({
+      where: { protocol: { in: ['vless', 'trojan'] } },
+      select: { protocol: true, secret: true },
       distinct: ['secret'],
     })
-    const uuids = Array.from(
-      new Set(uuidRows.map((r) => r.secret.trim().toLowerCase()).filter(Boolean)),
-    )
+    const creds = new Set<string>()
+    for (const r of credRows) {
+      const s = r.secret.trim()
+      if (!s) continue
+      if (r.protocol === 'vless') creds.add(s.toLowerCase())
+      else creds.add(createHash('sha224').update(s).digest('hex'))
+    }
 
     let tunnelPath = (await getSetting('tunnelPath')).trim().replace(/^\/+|\/+$/g, '')
     if (!tunnelPath) {
@@ -110,29 +117,41 @@ export async function POST(req: Request) {
     }
     const proxyIp = (await getSetting('tunnelProxyIp')).trim()
 
-    const metadata = {
-      main_module: 'worker.js',
-      compatibility_date: TUNNEL_COMPAT_DATE,
-      bindings: [
-        { type: 'plain_text', name: 'UUIDS', text: uuids.join(',') },
-        { type: 'plain_text', name: 'PATH_SECRET', text: tunnelPath },
-        { type: 'plain_text', name: 'PROXY_IP', text: proxyIp },
-      ],
+    const code = workerCodeFor(proxyIp)
+    const bindings = [
+      { type: 'plain_text', name: 'PATH_SECRET', text: tunnelPath },
+      { type: 'plain_text', name: 'TUNNEL_ALLOW', text: Array.from(creds).join(',') },
+      { type: 'plain_text', name: 'TUNNEL_PROXYIP', text: proxyIp },
+    ]
+    // Smart Placement keeps the tunnel near its users; unavailable on some
+    // plans, so a failed smart upload falls back to a plain one.
+    const upload = async (smart: boolean) => {
+      const metadata: Record<string, unknown> = {
+        main_module: 'worker.js',
+        compatibility_date: TUNNEL_COMPAT_DATE,
+        bindings,
+      }
+      if (smart) metadata.placement = { mode: 'smart' }
+      const form = new FormData()
+      form.append(
+        'metadata',
+        new Blob([JSON.stringify(metadata)], { type: 'application/json' }),
+      )
+      form.append(
+        'worker.js',
+        new Blob([code], { type: 'application/javascript+module' }),
+        'worker.js',
+      )
+      return cfFetch(`/accounts/${accountId}/workers/scripts/${name}`, apiToken, {
+        method: 'PUT',
+        body: form,
+      })
     }
-    const form = new FormData()
-    form.append(
-      'metadata',
-      new Blob([JSON.stringify(metadata)], { type: 'application/json' }),
-    )
-    form.append(
-      'worker.js',
-      new Blob([WORKER_CODE], { type: 'application/javascript+module' }),
-      'worker.js',
-    )
-    await cfFetch(`/accounts/${accountId}/workers/scripts/${name}`, apiToken, {
-      method: 'PUT',
-      body: form,
-    })
+    try {
+      await upload(true)
+    } catch {
+      await upload(false)
+    }
 
     // 4) Enable the workers.dev route for this script
     await cfFetch(`/accounts/${accountId}/workers/scripts/${name}/subdomains`, apiToken, {
