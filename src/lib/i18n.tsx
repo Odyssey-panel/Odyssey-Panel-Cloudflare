@@ -301,7 +301,6 @@ const FA: Record<string, string> = {
     'هنوز کانفیگی ساخته نشده — از «مدیریت» یه حساب پروکسی با آدرس سرور اضافه کن تا آدرس vless:// اینجا نمایش داده بشه',
   'No config yet — add a proxy account (with a server address) and its vless:// address will appear here':
     'هنوز کانفیگی نیست — از دکمهٔ «افزودن حساب» با آدرس سرور بساز؛ آدرس vless:// بلافاصله همین‌جا میاد',
-  'Show QR': 'نمایش QR',
   'Clash link': 'لینک Clash',
   'sing-box link': 'لینک sing-box',
   'Raw links': 'لینک‌های خام',
@@ -584,6 +583,44 @@ const FA: Record<string, string> = {
     'کاربران این پشتیبان بازیابی شوند؟ کاربران هم‌نام رد می‌شوند',
   '{restored} users restored, {skipped} skipped': '{restored} کاربر بازیابی شد، {skipped} رد شد',
   'Restore failed': 'بازیابی ناموفق بود',
+
+  // ── Zeus-grade creation: ports / ECH / first-connect / direct ─────────────
+  'Start expiry on first connection': 'شروع اعتبار از اولین اتصال',
+  'The days above start counting from the first time the user connects — not from creation.':
+    'روزهای بالا از اولین بارِ اتصال کاربر حساب می‌شوند — نه از لحظهٔ ساخت',
+  'Direct (no-proxy) config': 'کانفیگ مستقیم (بدون پروکسی)',
+  'Also give this user a plain direct config for sites that need no proxy.':
+    'یک کانفیگ مستقیم ساده هم برای سایت‌هایی که پروکسی نمی‌خواهند به این کاربر بده',
+  'TLS ports (multi-select)': 'پورت‌های TLS (چندگزینه‌ای)',
+  'Extra accounts are generated for every selected port — useful when a network throttles 443.':
+    'برای هر پورت انتخاب‌شده یک کانفیگ اضافه ساخته می‌شود — وقتی شبکه‌ای پورت ۴۴۳ را کند می‌کند به کار می‌آید',
+  'ECH (Encrypted ClientHello)': 'ECH (ClientHello رمزنگاری‌شده)',
+  'ON — SNI stays hidden from DPI': 'روشن — SNI از DPI پنهان می‌ماند',
+  'OFF — plain ClientHello': 'خاموش — ClientHello ساده',
+  'Fetch ECH': 'دریافت ECH',
+  'ECH config (auto-filled by Fetch, or paste your own)':
+    'تنظیمات ECH (با دکمهٔ دریافت پر می‌شود، یا دستی بچسبان)',
+  'ECH config fetched': 'تنظیمات ECH دریافت شد',
+  'No ECH config found for this domain': 'برای این دامنه تنظیمات ECH پیدا نشد',
+
+  // ── Settings: edge tunnel card ────────────────────────────────────────────
+  'Edge tunnel': 'تونل edge',
+  'Proxy-IP relays, content policy and reachability tests — applied to the tunnel on the next one-click redeploy.':
+    'ریله‌های Proxy-IP، سیاست محتوا و تست دسترس‌پذیری — با دیپلوی یک‌کلیکی بعدی روی تونل اعمال می‌شود',
+  'Proxy-IP relay pool (comma-separated IP:port)': 'استخر ریلهٔ Proxy-IP (با کاما، به شکل IP:port)',
+  'Used only as a fallback when a target site is itself behind Cloudflare and the edge cannot reach it directly.':
+    'فقط به‌عنوان مسیر جایگزین استفاده می‌شود؛ وقتی خودِ سایت مقصد پشت کلادفلر باشد و لبه نتواند مستقیم برسد',
+  'Block ads & trackers': 'مسدودسازی تبلیغات و ردیاب‌ها',
+  'Drops connections to known ad/tracker domains at the tunnel.':
+    'اتصال به دامنه‌های شناخته‌شدهٔ تبلیغاتی/ردیاب را در تونل قطع می‌کند',
+  'Block adult content': 'مسدودسازی محتوای بزرگسال',
+  'Drops connections to known adult domains at the tunnel.':
+    'اتصال به دامنه‌های شناخته‌شدهٔ بزرگسال را در تونل قطع می‌کند',
+  'Always-block domains (comma-separated)': 'دامنه‌های همیشه‌مسدود (با کاما)',
+  'Test relays from the edge': 'تست ریله‌ها از لبه',
+  'Probes every relay directly and through the tunnel, like a real user connection.':
+    'هر ریله را هم مستقیم و هم از مسیر تونل تست می‌کند — مثل اتصال واقعی کاربر',
+  'Relay test finished': 'تست ریله تمام شد',
 }
 
 type LangContextValue = {

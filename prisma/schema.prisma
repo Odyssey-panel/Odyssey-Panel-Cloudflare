@@ -20,6 +20,11 @@ model Client {
   expiresAt DateTime?
   // "start from first connection": expiry anchored to startedAt when set
   startedAt DateTime?
+  // Zeus-style "start on first connection": anchor expiry at the first
+  // subscription fetch instead of the creation moment
+  startOnFirstConnection Boolean @default(false)
+  // days granted at creation — used to re-anchor expiresAt on first connection
+  planDays Int @default(0)
   // request quota (0 = unlimited)
   usedRequests Int    @default(0)
   requestLimit Int    @default(0)

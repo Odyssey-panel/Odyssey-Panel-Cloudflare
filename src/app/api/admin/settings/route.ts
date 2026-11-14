@@ -11,7 +11,7 @@ export async function GET() {
   return jsonSafe({ settings: redactSettings(settings) })
 }
 
-const EDITABLE_KEYS = new Set(['publicUrl', 'ispPresets'])
+const EDITABLE_KEYS = new Set(['publicUrl', 'ispPresets', 'tunnelProxyIp', 'tunnelBlockAds', 'tunnelBlockPorn', 'tunnelBlockExtra'])
 
 export async function PUT(req: Request) {
   const unauthorized = await requireAuth()
@@ -34,6 +34,10 @@ export async function PUT(req: Request) {
       }
       patch[k as keyof PanelSettings] = v
     }
+  }
+  // tunnel block flags are "1"/"0" strings
+  for (const k of ['tunnelBlockAds', 'tunnelBlockPorn'] as const) {
+    if (body[k] !== undefined) patch[k] = body[k] === '1' || body[k] === 'true' ? '1' : '0'
   }
   // password change
   if (body.newPassword) {

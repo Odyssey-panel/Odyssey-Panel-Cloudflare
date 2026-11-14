@@ -82,6 +82,8 @@ export async function regenerateSubscription(clientId: string): Promise<void> {
       tls: p.tls,
       flow: p.flow,
       fragment: p.fragment,
+      fp: p.fp,
+      ech: p.ech,
     }))
 
     const formats: Partial<Record<SubFormat, string>> = {}

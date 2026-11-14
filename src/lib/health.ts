@@ -148,7 +148,7 @@ export async function checkNodeById(id: string) {
   return updated
 }
 
-/** Check a Worker row via HTTP GET, persist status. */
+/** Check a Worker row via HTTP GET on its /health endpoint, persist status. */
 export async function checkWorkerById(id: string) {
   const worker = await db.worker.findUnique({ where: { id } })
   if (!worker) return null
@@ -157,7 +157,9 @@ export async function checkWorkerById(id: string) {
   let httpStatus: number | null = null
   let latencyMs: number | null = null
   try {
-    const res = await fetch(worker.url, {
+    // /health is the honest probe — the tunnel root also answers 200 with a
+    // service banner, but /health validates the actual deployment version.
+    const res = await fetch(`${worker.url.replace(/\/+$/, '')}/health`, {
       signal: AbortSignal.timeout(6000),
       headers: { 'user-agent': 'Mozilla/5.0 (compatible; PanelWorkerCheck/1.0)' },
     })

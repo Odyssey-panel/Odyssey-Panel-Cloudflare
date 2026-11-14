@@ -2,7 +2,7 @@ import { db } from '@/lib/db'
 import { requireAuth, jsonSafe } from '@/lib/auth'
 import { randomBytes } from 'node:crypto'
 import { generateAccounts, persistAccounts } from '@/lib/accounts'
-import { regenerateSubscription } from '@/lib/subcache'
+import { regenerateSubscription, invalidateSubscription } from '@/lib/subcache'
 import { syncBackend } from '@/lib/backend'
 
 export const runtime = 'nodejs'
@@ -33,6 +33,11 @@ type CreateBody = {
   count?: number
   fragment?: string
   sni?: string
+  ech?: string
+  ports?: number[] // extra TLS ports (Zeus-style fan-out)
+  // tunnel content policy (GLOBAL — baked into the tunnel on next redeploy)
+  blockAds?: boolean
+  blockPorn?: boolean
 }
 
 export async function GET() {
@@ -56,11 +61,16 @@ export async function POST(req: Request) {
   if (exists) return Response.json({ error: 'Name already exists' }, { status: 409 })
 
   const subToken = randomBytes(16).toString('hex')
+  const planDays = Math.max(0, Math.round(body.days ?? 0))
   const expiresAt =
     body.expiresAt
       ? new Date(body.expiresAt)
-      : body.days && body.days > 0
-        ? new Date(Date.now() + body.days * 86400000)
+      : planDays > 0
+        // Zeus-style: when the admin anchors expiry to the first connection,
+        // expiresAt starts as null and is computed at the first sub fetch.
+        ? body.startOnFirstConnection
+          ? null
+          : new Date(Date.now() + planDays * 86400000)
         : null
   if (expiresAt && isNaN(expiresAt.getTime())) {
     return Response.json({ error: 'Invalid expiry date' }, { status: 400 })
@@ -72,6 +82,8 @@ export async function POST(req: Request) {
       note: body.note || null,
       limitBytes: BigInt(Math.round((body.trafficGb ?? 0) * 1024 ** 3)),
       expiresAt,
+      startOnFirstConnection: body.startOnFirstConnection === true,
+      planDays,
       requestLimit: Math.max(0, Math.round(body.requestLimit ?? 0)),
       ipLimit: Math.max(0, Math.round(body.ipLimit ?? 0)),
       resetBytesDays: Math.max(0, Math.round(body.resetBytesDays ?? 0)),
@@ -96,6 +108,8 @@ export async function POST(req: Request) {
         fragment: body.fragment || null,
         fingerprint: (body.fingerprint || 'chrome').trim(),
         sni: body.sni,
+        ech: body.ech?.trim() || null,
+        ports: body.ports || [],
       })
       await persistAccounts(client.id, accounts)
     } catch (e) {
@@ -103,7 +117,20 @@ export async function POST(req: Request) {
     }
   }
 
-  await regenerateSubscription(client.id)
+  // tunnel content policy switches are global — persist them so the next
+  // one-click tunnel redeploy bakes them into the worker
+  if (body.blockAds !== undefined || body.blockPorn !== undefined) {
+    const { setSettings } = await import('@/lib/settings')
+    const patch: Record<string, string> = {}
+    if (body.blockAds !== undefined) patch.tunnelBlockAds = body.blockAds ? '1' : '0'
+    if (body.blockPorn !== undefined) patch.tunnelBlockPorn = body.blockPorn ? '1' : '0'
+    await setSettings(patch)
+  }
+
+  // For "start on first connection" users the edge cache stays intentionally
+  // cold so the first real fetch anchors the expiry (see sub route).
+  if (client.startOnFirstConnection) await invalidateSubscription(client.subToken)
+  else await regenerateSubscription(client.id)
   syncBackend()
   const created = await db.client.findUnique({ where: { id: client.id }, include: { proxies: true } })
   return jsonSafe({ client: created, generationError }, { status: 201 })

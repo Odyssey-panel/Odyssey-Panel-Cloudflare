@@ -13,6 +13,12 @@ export type PanelSettings = {
   tunnelPath: string
   /** Optional comma-separated PROXY_IP relays passed to the tunnel worker. */
   tunnelProxyIp: string
+  /** Tunnel content policy: block ad/tracker domains ("1"/"0"). */
+  tunnelBlockAds: string
+  /** Tunnel content policy: block adult domains ("1"/"0"). */
+  tunnelBlockPorn: string
+  /** Extra comma-separated domain suffixes to always block in the tunnel. */
+  tunnelBlockExtra: string
 }
 
 /** Source of truth for defaults — missing DB rows fall back to these. */
@@ -25,6 +31,9 @@ export const SETTINGS_DEFAULTS: Record<keyof PanelSettings, string> = {
   tunnelUrl: '',
   tunnelPath: '',
   tunnelProxyIp: '',
+  tunnelBlockAds: '',
+  tunnelBlockPorn: '',
+  tunnelBlockExtra: '',
 }
 
 /** Keys hidden from the settings GET response. */

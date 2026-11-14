@@ -17,6 +17,7 @@ import { db } from '@/lib/db'
 import { tunnelFieldFor, type BuiltinFields } from '@/lib/backend'
 import { generateSecret, validateProtocol } from '@/lib/secrets'
 import { isValidFragment, buildServerConfig } from '@/lib/links'
+import { CF_TLS_PORTS } from '@/lib/worker-kit'
 
 /** Protocols the edge tunnel actually serves. */
 export const TUNNEL_PROTOCOLS = ['vless', 'trojan', 'shadowsocks'] as const
@@ -35,6 +36,10 @@ export type GenerateOptions = {
   fragment?: string | null
   fingerprint?: string | null
   sni?: string | null
+  /** Zeus-style ECH config list carried into the generated links */
+  ech?: string | null
+  /** extra TLS ports to emit one account per port (subset of CF_TLS_PORTS) */
+  ports?: number[]
 }
 
 export type GeneratedAccount = {
@@ -89,19 +94,33 @@ async function resolveEndpoints(preferred: string[]): Promise<Array<{ host: stri
   return out.slice(0, 8)
 }
 
-/** Resolve one host into the requested address flavors. */
+/** Small DoH cache so multi-variant generation doesn't re-resolve hosts. */
+const dnsMemo = new Map<string, { at: number; v4: string | null; v6: string | null }>()
+const DNS_TTL_MS = 5 * 60 * 1000
+
+/** Resolve one host into the requested address flavors (DNS in parallel). */
 async function hostVariants(
   host: string,
   types: Array<'domain' | 'ipv4' | 'ipv6'>,
 ): Promise<Array<{ address: string; sni: string; kind: 'domain' | 'ipv4' | 'ipv6' }>> {
   const out: Array<{ address: string; sni: string; kind: 'domain' | 'ipv4' | 'ipv6' }> = []
-  const want = types.length ? types : (['domain'] as const)
+  const want: Array<'domain' | 'ipv4' | 'ipv6'> = types.length ? types : (['domain'] as Array<'domain' | 'ipv4' | 'ipv6'>)
+  const needsV4 = want.includes('ipv4')
+  const needsV6 = want.includes('ipv6')
+  const cached = needsV4 || needsV6 ? dnsMemo.get(host) : undefined
+  const fresh = cached && Date.now() - cached.at < DNS_TTL_MS ? cached : null
+  const [v4, v6] = needsV4 || needsV6
+    ? fresh
+      ? [fresh.v4, fresh.v6]
+      : await Promise.all([needsV4 ? dnsLookup(host, 'ipv4') : null, needsV6 ? dnsLookup(host, 'ipv6') : null])
+    : [null, null]
+  if ((needsV4 || needsV6) && !fresh) dnsMemo.set(host, { at: Date.now(), v4, v6 })
   for (const kind of want) {
     if (kind === 'domain') {
       out.push({ address: host, sni: host, kind })
       continue
     }
-    const resolved = await dnsLookup(host, kind)
+    const resolved = kind === 'ipv4' ? v4 : v6
     out.push({ address: resolved || host, sni: host, kind })
   }
   return out
@@ -160,10 +179,21 @@ export async function generateAccounts(opts: GenerateOptions): Promise<Generated
     throw new Error('Invalid fragment value')
   }
 
+  // Zeus-style port fan-out: one account per selected TLS port (443 is the
+  // base and always present). Only Cloudflare-fronted TLS ports are valid.
+  const portSet = new Set<number>([443])
+  for (const p of opts.ports || []) {
+    const n = Math.round(Number(p))
+    if (n && (CF_TLS_PORTS as readonly number[]).includes(n)) portSet.add(n)
+  }
+  const ports = [...portSet]
+
   const count = Math.min(Math.max(1, opts.count ?? 1), 8)
   const out: GeneratedAccount[] = []
+  // hard cap so a wild multi-select can't explode the table
+  const CAP = 64
 
-  for (let li = 0; li < endpoints.length; li++) {
+  outer: for (let li = 0; li < endpoints.length; li++) {
     const ep = endpoints[li]
     const variants = await hostVariants(
       ep.host,
@@ -175,15 +205,19 @@ export async function generateAccounts(opts: GenerateOptions): Promise<Generated
     for (const proto of protocols) {
       for (let i = 0; i < count; i++) {
         for (const v of variants) {
-          const fields = ep.custom
-            ? customFields(v.address, proto, `/vlessws-${proto}`)
-            : await tunnelFieldFor(proto)
-          if (!fields) continue
-          const suffix =
-            `${locTag}${variants.length > 1 ? `-${v.kind}` : ''}${count > 1 ? `-${i + 1}` : ''}`
-          const remark = `Odyssey-${opts.name}${suffix}`
-          const secret = generateSecret(proto)
-          out.push(finalize(fields, proto, remark, secret, opts))
+          for (const port of ports) {
+            const fieldsBase = ep.custom
+              ? customFields(v.address, proto, `/vlessws-${proto}`)
+              : await tunnelFieldFor(proto)
+            if (!fieldsBase) continue
+            const fields: BuiltinFields = port === 443 ? fieldsBase : { ...fieldsBase, port }
+            const suffix =
+              `${locTag}${variants.length > 1 ? `-${v.kind}` : ''}${ports.length > 1 ? `-P${port}` : ''}${count > 1 ? `-${i + 1}` : ''}`
+            const remark = `Odyssey-${opts.name}${suffix}`
+            const secret = generateSecret(proto)
+            out.push(finalize(fields, proto, remark, secret, opts))
+            if (out.length >= CAP) break outer
+          }
         }
       }
     }
@@ -241,7 +275,7 @@ function finalize(
     tls: fields.tls,
     fragment: opts.fragment || null,
     fp: opts.fingerprint || null,
-    ech: null as string | null,
+    ech: opts.ech || null,
     plugin: null as string | null,
   }
   return {

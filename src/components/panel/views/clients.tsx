@@ -680,6 +680,14 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
   const [addrV4, setAddrV4] = useState(false)
   const [addrV6, setAddrV6] = useState(false)
   const [genCount, setGenCount] = useState('1')
+  // Zeus-grade extras: TLS port fan-out, ECH, first-connection expiry, direct
+  const [portsSel, setPortsSel] = useState<Set<number>>(new Set())
+  const [echOn, setEchOn] = useState(false)
+  const [ech, setEch] = useState('')
+  const [echDomain, setEchDomain] = useState('')
+  const [echBusy, setEchBusy] = useState(false)
+  const [startOnFirst, setStartOnFirst] = useState(false)
+  const [directOn, setDirectOn] = useState(true)
   const { t } = useLang()
 
   const isMtprotoC = protocol === 'mtproto'
@@ -689,6 +697,24 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
   const usePicker = showStreamC
   const workers = workersData?.workers
   const pickedWorker = workers?.find((w) => w.id === workerId) || null
+
+  const fetchEch = async () => {
+    const host = (echDomain || 'speed.cloudflare.com').trim()
+    setEchBusy(true)
+    try {
+      const r = await api<{ ok: boolean; ech?: string; error?: string }>(`/api/admin/ech?host=${encodeURIComponent(host)}`)
+      if (r.ok && r.ech) {
+        setEch(r.ech)
+        toast.success(t('ECH config fetched'))
+      } else {
+        toast.error(r.error || t('No ECH config found for this domain'))
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t('Request failed'))
+    } finally {
+      setEchBusy(false)
+    }
+  }
 
   const submit = async () => {
     if (!name.trim()) {
@@ -723,6 +749,8 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
           resetBytesDays: Number(resetBytesDays) || 0,
           resetRequestsDays: Number(resetRequestsDays) || 0,
           fingerprint,
+          startOnFirstConnection: startOnFirst,
+          directEnabled: directOn,
           // edge tunnel: generate one account per selected protocol (+ variants)
           ...(withProxy && backendMode === 'builtin'
             ? {
@@ -734,6 +762,8 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                   addrV6 && 'ipv6',
                 ].filter(Boolean) as Array<'domain' | 'ipv4' | 'ipv6'>,
                 fragment: fragmentOn ? fragment.trim() || undefined : undefined,
+                ech: echOn && ech.trim() ? ech.trim() : undefined,
+                ports: Array.from(portsSel),
               }
             : {
                 protocol: withProxy ? protocol : undefined,
@@ -821,6 +851,36 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
               <div className="space-y-1.5">
                 <Label htmlFor="c-resetreq">{t('Auto reset requests (days, 0 = never)')}</Label>
                 <Input id="c-resetreq" type="number" min="0" value={resetRequestsDays} onChange={(e) => setResetRequestsDays(e.target.value)} />
+              </div>
+            </div>
+
+            {/* Zeus-style expiry anchor + direct config — both apply to THIS user */}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div
+                className={`flex items-center justify-between gap-3 rounded-xl border p-3 transition-colors ${
+                  startOnFirst ? 'border-odyssey-cyan/40 bg-odyssey-cyan/[0.07]' : 'border-border/60'
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold leading-tight">{t('Start expiry on first connection')}</div>
+                  <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+                    {t('The days above start counting from the first time the user connects — not from creation.')}
+                  </div>
+                </div>
+                <Switch checked={startOnFirst} onCheckedChange={setStartOnFirst} aria-label={t('Start expiry on first connection')} />
+              </div>
+              <div
+                className={`flex items-center justify-between gap-3 rounded-xl border p-3 transition-colors ${
+                  directOn ? 'border-odyssey-cyan/40 bg-odyssey-cyan/[0.07]' : 'border-border/60'
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold leading-tight">{t('Direct (no-proxy) config')}</div>
+                  <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+                    {t('Also give this user a plain direct config for sites that need no proxy.')}
+                  </div>
+                </div>
+                <Switch checked={directOn} onCheckedChange={setDirectOn} aria-label={t('Direct (no-proxy) config')} />
               </div>
             </div>
           </section>
@@ -962,6 +1022,89 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                           </Select>
                         </div>
                       </div>
+                    </div>
+
+                    {/* Zeus-grade: TLS port fan-out — one extra account per port */}
+                    <div className="space-y-1.5">
+                      <Label>{t('TLS ports (multi-select)')}</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[443, 2053, 2083, 2087, 2096, 8443].map((p) => {
+                          const base = p === 443
+                          const on = base || portsSel.has(p)
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              disabled={base}
+                              onClick={() =>
+                                setPortsSel((prev) => {
+                                  const next = new Set(prev)
+                                  if (next.has(p)) next.delete(p)
+                                  else next.add(p)
+                                  return next
+                                })
+                              }
+                              className={`rounded-lg border px-2.5 py-1.5 font-mono text-xs font-medium transition-colors ${
+                                on
+                                  ? 'border-cyan-400/40 bg-cyan-400/10 text-foreground'
+                                  : 'border-border/60 text-muted-foreground hover:bg-white/[0.04]'
+                              } ${base ? 'cursor-default opacity-70' : ''}`}
+                            >
+                              {p}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t('Extra accounts are generated for every selected port — useful when a network throttles 443.')}
+                      </p>
+                    </div>
+
+                    {/* Zeus-grade: ECH (Encrypted ClientHello) */}
+                    <div
+                      className={`rounded-xl border p-3 transition-colors ${
+                        echOn
+                          ? 'border-odyssey-cyan/40 bg-odyssey-cyan/[0.07] shadow-[inset_0_0_0_1px_oklch(0.72_0.1_214/0.12)]'
+                          : 'border-border/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-odyssey-cyan/15 ring-1 ring-inset ring-odyssey-cyan/30">
+                            <ShieldCheck className="h-4 w-4 text-odyssey-deep dark:text-odyssey-bright" />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold leading-tight">{t('ECH (Encrypted ClientHello)')}</div>
+                            <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+                              {echOn ? t('ON — SNI stays hidden from DPI') : t('OFF — plain ClientHello')}
+                            </div>
+                          </div>
+                        </div>
+                        <Switch checked={echOn} onCheckedChange={setEchOn} aria-label={t('ECH (Encrypted ClientHello)')} />
+                      </div>
+                      {echOn && (
+                        <div className="mt-3 space-y-2">
+                          <div className="flex gap-2">
+                            <Input
+                              value={echDomain}
+                              onChange={(e) => setEchDomain(e.target.value)}
+                              placeholder="speed.cloudflare.com"
+                              dir="ltr"
+                              className="font-mono text-xs"
+                            />
+                            <Button type="button" variant="outline" size="sm" onClick={() => void fetchEch()} disabled={echBusy} className="shrink-0">
+                              {echBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} {t('Fetch ECH')}
+                            </Button>
+                          </div>
+                          <Input
+                            value={ech}
+                            onChange={(e) => setEch(e.target.value)}
+                            placeholder={t('ECH config (auto-filled by Fetch, or paste your own)')}
+                            dir="ltr"
+                            className="font-mono text-[11px]"
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (

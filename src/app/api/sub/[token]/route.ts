@@ -51,6 +51,25 @@ export async function GET(req: Request, { params }: Params) {
   if (client.status !== 'active') {
     return new Response('Subscription disabled', { status: 403 })
   }
+  // Zeus-style "start on first connection": the very first subscription fetch
+  // anchors the expiry — startedAt = now, expiresAt = now + planDays. The
+  // edge cache is intentionally left COLD for such users at creation, so
+  // this slow path runs exactly once and then the cache takes over.
+  if (
+    client.startOnFirstConnection &&
+    client.planDays > 0 &&
+    !client.startedAt &&
+    !client.expiresAt
+  ) {
+    const now = new Date()
+    const anchored = new Date(now.getTime() + client.planDays * 86400000)
+    await db.client.update({
+      where: { id: client.id },
+      data: { startedAt: now, expiresAt: anchored },
+    })
+    client.startedAt = now
+    client.expiresAt = anchored
+  }
   // "start from first connection": expiry anchored to startedAt when present
   const effectiveExpiry = client.expiresAt
   if (effectiveExpiry && effectiveExpiry.getTime() < Date.now()) {

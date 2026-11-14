@@ -18,8 +18,16 @@ import { tunnelWorkerSource } from './tunnel-worker'
 export const WORKER_CODE = tunnelWorkerSource()
 
 /** Source used by the one-click deploy route (can embed a fallback proxy IP). */
-export function workerCodeFor(proxyIp = ''): string {
-  return tunnelWorkerSource(proxyIp)
+export function workerCodeFor(proxyIp = '', blockFlags = ''): string {
+  return tunnelWorkerSource(proxyIp, blockFlags)
+}
+
+/** TUNNEL_BLOCK value for the deployed tunnel from panel settings. */
+export function blockFlagsFor(ads: boolean, porn: boolean): string {
+  const parts: string[] = []
+  if (ads) parts.push('ads')
+  if (porn) parts.push('porn')
+  return parts.join(',')
 }
 
 /** Sub-paths beneath the secret path that the tunnel serves. */

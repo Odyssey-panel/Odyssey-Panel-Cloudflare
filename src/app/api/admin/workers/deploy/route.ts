@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { requireAuth, jsonSafe } from '@/lib/auth'
-import { workerCodeFor } from '@/lib/worker-kit'
+import { workerCodeFor, blockFlagsFor } from '@/lib/worker-kit'
 import { setSettings, getSetting } from '@/lib/settings'
 import { createHash } from 'node:crypto'
 
@@ -116,12 +116,16 @@ export async function POST(req: Request) {
       tunnelPath = crypto.randomUUID().replace(/-/g, '').slice(0, 24)
     }
     const proxyIp = (await getSetting('tunnelProxyIp')).trim()
+    const blockAds = (await getSetting('tunnelBlockAds')).trim() === '1'
+    const blockPorn = (await getSetting('tunnelBlockPorn')).trim() === '1'
+    const blockExtra = (await getSetting('tunnelBlockExtra')).trim()
 
-    const code = workerCodeFor(proxyIp)
+    const code = workerCodeFor(proxyIp, blockFlagsFor(blockAds, blockPorn))
     const bindings = [
       { type: 'plain_text', name: 'PATH_SECRET', text: tunnelPath },
       { type: 'plain_text', name: 'TUNNEL_ALLOW', text: Array.from(creds).join(',') },
       { type: 'plain_text', name: 'TUNNEL_PROXYIP', text: proxyIp },
+      ...(blockExtra ? [{ type: 'plain_text', name: 'TUNNEL_BLOCK_EXTRA', text: blockExtra }] : []),
     ]
     // Smart Placement keeps the tunnel near its users; unavailable on some
     // plans, so a failed smart upload falls back to a plain one.
