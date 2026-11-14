@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -83,6 +83,30 @@ export function NodesView() {
   const nodesApi = useApi<{ nodes: NodeRow[] }>('/api/admin/nodes')
   const workersApi = useApi<{ workers: WorkerRow[] }>('/api/admin/workers')
   const [checking, setChecking] = useState(false)
+  // Browser-side probes for workers.dev endpoints: Cloudflare blocks
+  // worker→worker fetches (error 1042), so the panel server always records
+  // a false "down" for them. The browser CAN reach them, so we probe here.
+  const [probes, setProbes] = useState<Record<string, { status: 'up' | 'down'; latencyMs: number | null }>>({})
+  useEffect(() => {
+    const rows = workersApi.data?.workers || []
+    const targets = rows.filter((w) => /workers\.dev/i.test(w.url))
+    if (!targets.length) return
+    let alive = true
+    ;(async () => {
+      const next: Record<string, { status: 'up' | 'down'; latencyMs: number | null }> = {}
+      await Promise.all(targets.map(async (w) => {
+        const t0 = performance.now()
+        try {
+          const res = await fetch(`${w.url.replace(/\/+$/, '')}/health`, { signal: AbortSignal.timeout(6000) })
+          next[w.id] = { status: res.ok ? 'up' : 'down', latencyMs: Math.round(performance.now() - t0) }
+        } catch {
+          next[w.id] = { status: 'down', latencyMs: null }
+        }
+      }))
+      if (alive) setProbes((p) => ({ ...p, ...next }))
+    })()
+    return () => { alive = false }
+  }, [workersApi.data])
   const [addNode, setAddNode] = useState(false)
   const [addWorker, setAddWorker] = useState(false)
   const [deployWorker, setDeployWorker] = useState(false)
@@ -227,14 +251,14 @@ export function NodesView() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold">{w.name}</span>
-                      <StatusBadge kind={(w.status as 'up' | 'down' | 'unknown') || 'unknown'} />
+                      <StatusBadge kind={((probes[w.id]?.status || w.status) as 'up' | 'down' | 'unknown') || 'unknown'} />
                       {w.httpStatus !== null && (
                         <span className="font-mono text-xs text-muted-foreground">HTTP {w.httpStatus}</span>
                       )}
                     </div>
                     <div className="mt-1 truncate font-mono text-xs text-muted-foreground" dir="ltr">{w.url}</div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {w.status === 'up' && w.latencyMs !== null ? `⚡ ${w.latencyMs} ms · ` : ''}
+                      {(probes[w.id]?.status || w.status) === 'up' && (probes[w.id]?.latencyMs ?? w.latencyMs) !== null ? `⚡ ${probes[w.id]?.latencyMs ?? w.latencyMs} ms · ` : ''}
                       {w.lastCheckedAt ? t('checked {time}', { time: formatDateTime(w.lastCheckedAt, lang) }) : t('never checked')}
                     </div>
                   </div>
