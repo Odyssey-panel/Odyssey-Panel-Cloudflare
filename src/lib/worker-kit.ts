@@ -304,7 +304,9 @@ async function openPipe(ws, parsed, firstPayload, env, ctx, invCtx) {
   // target's port for them.
   const relays = String(env.PROXY_IP || '').split(',').map((s) => s.trim()).filter(Boolean)
     .map((r) => (r.includes(':') ? r : r + ':443'));
-  const targets = cfHosted && relays.length ? relays.concat([direct]) : [direct].concat(relays);
+  // CF-hosted targets can NEVER be reached directly from a worker — don't
+  // waste a 30s hang on them when relays are configured.
+  const targets = cfHosted && relays.length ? relays : [direct].concat(relays);
 
   ctx.early = firstPayload && firstPayload.byteLength ? [firstPayload] : [];
   ctx.confirmed = false;
@@ -356,7 +358,7 @@ async function attemptTarget(ws, target, ctx, invCtx, hasMore) {
   if (invCtx && typeof invCtx.waitUntil === 'function') invCtx.waitUntil(pump);
   // First-byte watchdog: silently-hanging sockets (CF-hosted targets)
   // must give way to the next relay candidate.
-  const deadline = hasMore ? 6000 : 30000;
+  const deadline = hasMore ? 5000 : 30000;
   const ok = await new Promise((resolve) => {
     const t0 = Date.now();
     const poll = setInterval(() => {
