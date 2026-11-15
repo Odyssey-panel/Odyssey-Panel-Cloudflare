@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { requireAuth } from '@/lib/auth'
 import { regenerateSubscription, invalidateSubscription } from '@/lib/subcache'
+import { memoDrop } from '@/lib/memo'
 
 export const runtime = 'nodejs'
 
@@ -58,6 +59,7 @@ export async function POST(req: Request) {
   }
 
   // refresh the edge cache for every touched user
+  memoDrop()
   await Promise.allSettled(ids.map((id) => regenerateSubscription(id)))
   return Response.json({ ok: true, affected })
 }

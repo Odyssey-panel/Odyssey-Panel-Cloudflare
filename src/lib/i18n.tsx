@@ -610,6 +610,16 @@ const FA: Record<string, string> = {
   'TLS ports (multi-select)': 'پورت‌های TLS (چندگزینه‌ای)',
   'Extra accounts are generated for every selected port — useful when a network throttles 443.':
     'برای هر پورت انتخاب‌شده یک کانفیگ اضافه ساخته می‌شود — وقتی شبکه‌ای پورت ۴۴۳ را کند می‌کند به کار می‌آید',
+  'HTTP ports — no TLS (multi-select)': 'پورت‌های HTTP — بدون TLS (چندگزینه‌ای)',
+  'Plain ws:// variants — escape hatch when a network throttles TLS handshakes.':
+    'واریانت‌های ws:// ساده — راه‌گزینی وقتی شبکه‌ای هندشیک TLS را دُپ می‌کند',
+  'Your own ports': 'پورت‌های دلخواه شما',
+  'e.g. 8443': 'مثلاً 8443',
+  'Remove port': 'حذف پورت',
+  'Enter a valid port (1-65535)': 'یک پورت معتبر وارد کنید (۱ تا ۶۵۵۳۵)',
+  'Port already selected': 'این پورت قبلاً انتخاب شده است',
+  'Any port number — for custom backends or self-hosted nodes that answer on it.':
+    'هر عدد پورت — برای بک‌اندهای دلخواه یا نودهای خودت که روی آن پورت جواب می‌دهند',
   'ECH (Encrypted ClientHello)': 'ECH (ClientHello رمزنگاری‌شده)',
   'ON — SNI stays hidden from DPI': 'روشن — SNI از DPI پنهان می‌ماند',
   'OFF — plain ClientHello': 'خاموش — ClientHello ساده',

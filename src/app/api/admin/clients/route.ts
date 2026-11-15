@@ -4,6 +4,8 @@ import { randomBytes } from 'node:crypto'
 import { generateAccounts, persistAccounts } from '@/lib/accounts'
 import { regenerateSubscription, invalidateSubscription } from '@/lib/subcache'
 import { syncBackend } from '@/lib/backend'
+import { memoCached, memoDrop } from '@/lib/memo'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 
 export const runtime = 'nodejs'
 
@@ -43,10 +45,14 @@ type CreateBody = {
 export async function GET() {
   const unauthorized = await requireAuth()
   if (unauthorized) return unauthorized
-  const clients = await db.client.findMany({
-    include: { proxies: true },
-    orderBy: { createdAt: 'desc' },
-  })
+  // SPEED: 1.5s isolate memo — view-switches and prewarm double-fetches hit
+  // memory instead of re-paying the full clients+proxies D1 read.
+  const clients = await memoCached('clients', 1500, () =>
+    db.client.findMany({
+      include: { proxies: true },
+      orderBy: { createdAt: 'desc' },
+    }),
+  )
   return jsonSafe({ clients })
 }
 
@@ -138,10 +144,22 @@ export async function POST(req: Request) {
   // For "start on first connection" users the edge cache stays intentionally
   // cold so the first real fetch anchors the expiry (see sub route).
   if (client.startOnFirstConnection) await invalidateSubscription(client.subToken)
-  else await regenerateSubscription(client.id)
+  else {
+    // SPEED: warm the KV sub cache out-of-band — the response no longer waits
+    // for the D1 re-read + 4-format build + KV put (~100-200ms per create).
+    // The public sub route's on-the-fly builder is the safety net anyway.
+    try {
+      const ctx = (getCloudflareContext() as { ctx?: { waitUntil?: (p: Promise<void>) => void } } | undefined)
+      ctx?.ctx?.waitUntil?.(regenerateSubscription(client.id))
+    } catch {
+      await regenerateSubscription(client.id)
+    }
+  }
+  memoDrop()
   syncBackend()
-  const created = await db.client.findUnique({ where: { id: client.id }, include: { proxies: true } })
-  return jsonSafe({ client: created, generationError }, { status: 201 })
+  // No post-create re-read — the create row already has every scalar field
+  // and the clients view reloads the list itself.
+  return jsonSafe({ client, generationError }, { status: 201 })
 }
 
 export async function DELETE(req: Request) {
@@ -153,6 +171,7 @@ export async function DELETE(req: Request) {
   const doomed = await db.client.findMany({ where: { id: { in: ids } }, select: { subToken: true } })
   await db.client.deleteMany({ where: { id: { in: ids } } })
   await Promise.allSettled(doomed.map((c) => import('@/lib/subcache').then((m) => m.invalidateSubscription(c.subToken))))
+  memoDrop()
   syncBackend()
   return Response.json({ ok: true })
 }

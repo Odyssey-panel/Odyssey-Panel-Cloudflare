@@ -31,7 +31,7 @@ const g = globalThis as unknown as { __subCache?: Map<string, CachedSub> }
 const memory = (): Map<string, CachedSub> => (g.__subCache ??= new Map())
 
 type KvLike = {
-  get: (key: string, type?: string) => Promise<string | null>
+  get: (key: string, type?: string, opts?: { cacheTtl?: number }) => Promise<string | null>
   put: (key: string, value: string, opts?: { expirationTtl?: number }) => Promise<unknown>
   delete: (key: string) => Promise<unknown>
 }
@@ -129,8 +129,11 @@ export async function readSubscriptionCache(
 ): Promise<{ body: string; userinfo: string; updatedAt: number } | null> {
   try {
     const store = kv()
+    // SPEED: cacheTtl pins the payload in the PoP-local KV edge cache —
+    // repeat fetches from the same region are served from the edge without
+    // the central KV hop (the difference between ~1-5ms and ~15-40ms).
     const raw: string | null = store
-      ? await store.get(`sub:${subToken}`)
+      ? await store.get(`sub:${subToken}`, 'text', { cacheTtl: 60 })
       : (memory().get(subToken) as CachedSub | undefined
           ? JSON.stringify(memory().get(subToken))
           : null)
@@ -155,7 +158,9 @@ export async function cachedJson<T>(
   const store = kv()
   const now = Date.now()
   try {
-    const raw = store ? await store.get(`cache:${key}`) : null
+    // PoP-local KV edge cache — repeat reads in the same region skip the
+    // central KV hop (callers pass ttlMs >= 60s; the edge window matches).
+    const raw = store ? await store.get(`cache:${key}`, 'text', { cacheTtl: 60 }) : null
     const local = raw ? null : memo.get(key)
     const hit = raw ? JSON.parse(raw).v : local && now - local.at < ttlMs ? JSON.parse(local.value).v : null
     if (hit !== null && hit !== undefined) return hit as T

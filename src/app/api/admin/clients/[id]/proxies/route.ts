@@ -4,6 +4,7 @@ import { buildServerConfig, isValidFragment } from '@/lib/links'
 import { generateSecret, validateProtocol } from '@/lib/secrets'
 import { normalizeProxyTarget, panelHost, syncBackend } from '@/lib/backend'
 import { regenerateSubscription } from '@/lib/subcache'
+import { memoDrop } from '@/lib/memo'
 
 export const runtime = 'nodejs'
 
@@ -110,6 +111,7 @@ export async function POST(req: Request, { params }: Params) {
     },
   })
   syncBackend()
+  memoDrop()
   await regenerateSubscription(id)
   return jsonSafe({ proxy }, { status: 201 })
 }

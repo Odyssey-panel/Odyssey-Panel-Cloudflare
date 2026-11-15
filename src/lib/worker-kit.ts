@@ -40,6 +40,13 @@ export const TUNNEL_PROTOCOL_PATHS = {
 /** TLS-enabled ports Cloudflare fronts for workers.dev / proxied zones. */
 export const CF_TLS_PORTS = [443, 2053, 2083, 2087, 2096, 8443]
 
+/**
+ * Plain-HTTP ports Cloudflare fronts (no TLS). workers.dev answers them
+ * without a redirect, so a ws:// config on these ports genuinely connects —
+ * Zeus-style escape hatch for networks that throttle TLS handshakes.
+ */
+export const CF_HTTP_PORTS = [80, 8080, 8880, 2052, 2082, 2086, 2095]
+
 export const WORKER_STEPS_FA = [
   'در داشبورد Cloudflare وارد بخش «Workers & Pages» شوید — یا ساده‌تر: در پنل اودیسه، صفحهٔ «ورکرها» را باز کنید و دکمهٔ «دیپلوی یک‌کلیکی تونل» را بزنید.',
   'دیپلوی خودکار: پنل ورکر odyssey-tunnel را با مسیر مخفی و ProxyIP روی حساب Cloudflare شما نصب می‌کند — حالا هر سه پروتکل VLESS، Trojan و Shadowsocks را سرو می‌کند.',

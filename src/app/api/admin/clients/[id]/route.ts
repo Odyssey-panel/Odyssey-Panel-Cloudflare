@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { requireAuth, jsonSafe } from '@/lib/auth'
 import { regenerateSubscription, invalidateSubscription } from '@/lib/subcache'
+import { memoDrop } from '@/lib/memo'
 
 export const runtime = 'nodejs'
 
@@ -72,6 +73,7 @@ export async function PATCH(req: Request, { params }: Params) {
   }
 
   const updated = await db.client.update({ where: { id }, data, include: { proxies: true } })
+  memoDrop()
   await regenerateSubscription(id)
   return jsonSafe({ client: updated })
 }
@@ -83,5 +85,6 @@ export async function DELETE(_req: Request, { params }: Params) {
   const client = await db.client.findUnique({ where: { id }, select: { subToken: true } })
   await db.client.delete({ where: { id } })
   if (client) await invalidateSubscription(client.subToken)
+  memoDrop()
   return Response.json({ ok: true })
 }

@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { requireAuth, jsonSafe } from '@/lib/auth'
+import { memoDrop } from '@/lib/memo'
 
 export const runtime = 'nodejs'
 
@@ -19,5 +20,6 @@ export async function POST(req: Request, { params }: Params) {
     : { usedBytes: BigInt(Math.max(0, Math.round((body.usedGb ?? 0) * GB))) }
 
   const updated = await db.client.update({ where: { id }, data })
+  memoDrop()
   return jsonSafe({ client: updated })
 }

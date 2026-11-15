@@ -25,6 +25,17 @@ function forgetAuth() {
   } catch {}
 }
 
+/** All admin GETs the panel's views read — prewarmed in one parallel wave. */
+const PREWARM_URLS = [
+  '/api/admin/stats',
+  '/api/admin/clients',
+  '/api/admin/usage',
+  '/api/admin/settings',
+  '/api/admin/nodes',
+  '/api/admin/workers',
+  '/api/admin/plans',
+]
+
 export default function Home() {
   const [authed, setAuthed] = useState<boolean | null>(null)
   const { t } = useLang()
@@ -40,7 +51,7 @@ export default function Home() {
     } catch {}
     if (optimistic && !cancelled) {
       setAuthed(true)
-      prewarm(['/api/admin/stats', '/api/admin/clients'])
+      prewarm(PREWARM_URLS)
     }
     const check = async () => {
       try {
@@ -49,7 +60,7 @@ export default function Home() {
         if (cancelled) return
         if (data.ok) {
           rememberAuth()
-          if (!optimistic) prewarm(['/api/admin/stats', '/api/admin/clients'])
+          if (!optimistic) prewarm(PREWARM_URLS)
         } else {
           forgetAuth()
         }
@@ -99,5 +110,5 @@ export default function Home() {
     )
   }
 
-  return authed ? <Panel /> : <Login onSuccess={() => { rememberAuth(); prewarm(['/api/admin/stats', '/api/admin/clients']); setAuthed(true) }} />
+  return authed ? <Panel /> : <Login onSuccess={() => { rememberAuth(); prewarm(PREWARM_URLS); setAuthed(true) }} />
 }

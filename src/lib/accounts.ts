@@ -17,7 +17,7 @@ import { db } from '@/lib/db'
 import { tunnelFieldFor, type BuiltinFields } from '@/lib/backend'
 import { generateSecret, validateProtocol } from '@/lib/secrets'
 import { isValidFragment, buildServerConfig } from '@/lib/links'
-import { CF_TLS_PORTS } from '@/lib/worker-kit'
+import { CF_HTTP_PORTS } from '@/lib/worker-kit'
 
 /** Protocols the edge tunnel actually serves. */
 export const TUNNEL_PROTOCOLS = ['vless', 'trojan', 'shadowsocks'] as const
@@ -179,14 +179,17 @@ export async function generateAccounts(opts: GenerateOptions): Promise<Generated
     throw new Error('Invalid fragment value')
   }
 
-  // Zeus-style port fan-out: one account per selected TLS port (443 is the
-  // base and always present). Only Cloudflare-fronted TLS ports are valid.
+  // Zeus-style port fan-out: one account per selected port (443 is the base
+  // and always present). Cloudflare-fronted TLS ports keep TLS; CF plain-HTTP
+  // ports emit a tls:false ws variant; ANY other port the admin typed by hand
+  // (custom backends / self-hosted nodes) is honoured as-is with TLS on.
   const portSet = new Set<number>([443])
   for (const p of opts.ports || []) {
     const n = Math.round(Number(p))
-    if (n && (CF_TLS_PORTS as readonly number[]).includes(n)) portSet.add(n)
+    if (n && n >= 1 && n <= 65535) portSet.add(n)
   }
   const ports = [...portSet]
+  const httpPorts = new Set<number>(CF_HTTP_PORTS)
 
   const count = Math.min(Math.max(1, opts.count ?? 1), 8)
   const out: GeneratedAccount[] = []
@@ -210,7 +213,14 @@ export async function generateAccounts(opts: GenerateOptions): Promise<Generated
               ? customFields(v.address, proto, `/vlessws-${proto}`)
               : await tunnelFieldFor(proto)
             if (!fieldsBase) continue
-            const fields: BuiltinFields = port === 443 ? fieldsBase : { ...fieldsBase, port }
+            // plain-HTTP ports only make sense for ws (grpc/tcp on CF need TLS)
+            const plain = httpPorts.has(port) && fieldsBase.transport === 'ws'
+            const fields: BuiltinFields =
+              port === 443 && !plain
+                ? fieldsBase
+                : (plain
+                    ? { ...fieldsBase, port, tls: false }
+                    : { ...fieldsBase, port }) as BuiltinFields
             const suffix =
               `${locTag}${variants.length > 1 ? `-${v.kind}` : ''}${ports.length > 1 ? `-P${port}` : ''}${count > 1 ? `-${i + 1}` : ''}`
             const remark = `Odyssey-${opts.name}${suffix}`
@@ -280,7 +290,9 @@ function finalize(
     tls: fields.tls,
     fragment: opts.fragment || null,
     fp: opts.fingerprint || null,
-    ech: opts.ech || null,
+    // ECH encrypts the TLS ClientHello — meaningless (and confusing for
+    // clients) on plain-HTTP port variants, so it is dropped there.
+    ech: fields.tls ? opts.ech || null : null,
     plugin: null as string | null,
   }
   return {

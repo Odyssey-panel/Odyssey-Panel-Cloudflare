@@ -68,8 +68,9 @@ import {
   CheckCircle2,
   XCircle,
   ExternalLink,
+  X,
 } from 'lucide-react'
-import { WORKER_STEPS_FA } from '@/lib/worker-kit'
+import { CF_TLS_PORTS, CF_HTTP_PORTS, WORKER_STEPS_FA } from '@/lib/worker-kit'
 
 type ProxyRow = {
   id: string
@@ -683,6 +684,9 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
   const [genCount, setGenCount] = useState('1')
   // Zeus-grade extras: TLS port fan-out, ECH, first-connection expiry, direct
   const [portsSel, setPortsSel] = useState<Set<number>>(new Set())
+  // ports the admin typed by hand (Zeus-style “add your own”)
+  const [customPorts, setCustomPorts] = useState<number[]>([])
+  const [customPortInput, setCustomPortInput] = useState('')
   const [echOn, setEchOn] = useState(false)
   const [ech, setEch] = useState('')
   const [echDomain, setEchDomain] = useState('')
@@ -693,8 +697,41 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
   // Zeus-style 3-tab dialog: general / server & IP / anti-filter & test
   const [tab, setTab] = useState('general')
   useEffect(() => {
-    if (open) setTab('general')
+    if (open) {
+      setTab('general')
+      setCustomPorts([])
+      setCustomPortInput('')
+    }
   }, [open])
+  // Zeus-style “add your own port”: validate, dedupe, add as a removable chip
+  const addCustomPort = () => {
+    const n = Number(customPortInput.trim())
+    if (!Number.isInteger(n) || n < 1 || n > 65535) {
+      toast.error(t('Enter a valid port (1-65535)'))
+      return
+    }
+    if (
+      n === 443 ||
+      (CF_TLS_PORTS as readonly number[]).includes(n) ||
+      (CF_HTTP_PORTS as readonly number[]).includes(n) ||
+      portsSel.has(n)
+    ) {
+      toast.error(t('Port already selected'))
+      setCustomPortInput('')
+      return
+    }
+    setCustomPorts((prev) => [...prev, n])
+    setPortsSel((prev) => new Set(prev).add(n))
+    setCustomPortInput('')
+  }
+  const removeCustomPort = (n: number) => {
+    setCustomPorts((prev) => prev.filter((p) => p !== n))
+    setPortsSel((prev) => {
+      const next = new Set(prev)
+      next.delete(n)
+      return next
+    })
+  }
   // tab 3 — ping test (panel egress) + tunnel relay probe (browser-side)
   const { data: settingsData } = useApi<{ settings: { tunnelUrl?: string; tunnelPath?: string; tunnelProxyIp?: string } }>(
     open ? '/api/admin/settings' : null,
@@ -1184,37 +1221,121 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                   </>
                 )}
 
-                {/* Zeus-grade: TLS port fan-out — one extra account per port */}
+                {/* Zeus-grade: port fan-out — one extra account per port */}
                 {backendMode === 'builtin' && (
-                  <div className="space-y-1.5">
-                    <Label>{t('TLS ports (multi-select)')}</Label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {[443, 2053, 2083, 2087, 2096, 8443].map((p) => {
-                        const base = p === 443
-                        const on = base || portsSel.has(p)
-                        return (
-                          <button
-                            key={p}
-                            type="button"
-                            disabled={base}
-                            onClick={() =>
-                              setPortsSel((prev) => {
-                                const next = new Set(prev)
-                                if (next.has(p)) next.delete(p)
-                                else next.add(p)
-                                return next
-                              })
+                  <div className="space-y-2.5">
+                    {/* TLS group */}
+                    <div className="space-y-1.5">
+                      <Label>{t('TLS ports (multi-select)')}</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {CF_TLS_PORTS.map((p) => {
+                          const base = p === 443
+                          const on = base || portsSel.has(p)
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              disabled={base}
+                              onClick={() =>
+                                setPortsSel((prev) => {
+                                  const next = new Set(prev)
+                                  if (next.has(p)) next.delete(p)
+                                  else next.add(p)
+                                  return next
+                                })
+                              }
+                              className={`rounded-lg border px-2.5 py-1.5 font-mono text-xs font-medium transition-colors ${
+                                on
+                                  ? 'border-cyan-400/40 bg-cyan-400/10 text-foreground'
+                                  : 'border-border/60 text-muted-foreground hover:bg-white/[0.04]'
+                              } ${base ? 'cursor-default opacity-70' : ''}`}
+                            >
+                              {p}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                    {/* plain-HTTP group — tls:false ws variants */}
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground">{t('HTTP ports — no TLS (multi-select)')}</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {CF_HTTP_PORTS.map((p) => {
+                          const on = portsSel.has(p)
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() =>
+                                setPortsSel((prev) => {
+                                  const next = new Set(prev)
+                                  if (next.has(p)) next.delete(p)
+                                  else next.add(p)
+                                  return next
+                                })
+                              }
+                              aria-pressed={on}
+                              className={`rounded-lg border px-2.5 py-1.5 font-mono text-xs font-medium transition-colors ${
+                                on
+                                  ? 'border-amber-400/40 bg-amber-400/10 text-foreground'
+                                  : 'border-border/60 text-muted-foreground hover:bg-white/[0.04]'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t('Plain ws:// variants — escape hatch when a network throttles TLS handshakes.')}
+                      </p>
+                    </div>
+                    {/* custom ports — add your own */}
+                    <div className="space-y-1.5 rounded-xl border border-dashed border-border/60 p-2.5">
+                      <Label>{t('Your own ports')}</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          inputMode="numeric"
+                          value={customPortInput}
+                          onChange={(e) => setCustomPortInput(e.target.value.replace(/[^0-9]/g, '').slice(0, 5))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              addCustomPort()
                             }
-                            className={`rounded-lg border px-2.5 py-1.5 font-mono text-xs font-medium transition-colors ${
-                              on
-                                ? 'border-cyan-400/40 bg-cyan-400/10 text-foreground'
-                                : 'border-border/60 text-muted-foreground hover:bg-white/[0.04]'
-                            } ${base ? 'cursor-default opacity-70' : ''}`}
-                          >
-                            {p}
-                          </button>
-                        )
-                      })}
+                          }}
+                          placeholder={t('e.g. 8443')}
+                          dir="ltr"
+                          aria-label={t('Your own ports')}
+                          className="h-8 font-mono text-xs"
+                        />
+                        <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" onClick={addCustomPort}>
+                          {t('Add')}
+                        </Button>
+                      </div>
+                      {customPorts.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {customPorts.map((p) => (
+                            <span
+                              key={p}
+                              className="inline-flex items-center gap-1 rounded-lg border border-cyan-400/40 bg-cyan-400/10 px-2.5 py-1.5 font-mono text-xs font-medium text-foreground"
+                            >
+                              {p}
+                              <button
+                                type="button"
+                                onClick={() => removeCustomPort(p)}
+                                aria-label={`${t('Remove port')} ${p}`}
+                                className="-me-0.5 rounded p-0.5 text-muted-foreground transition-colors hover:text-destructive"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-[11px] text-muted-foreground">
+                        {t('Any port number — for custom backends or self-hosted nodes that answer on it.')}
+                      </p>
                     </div>
                     <p className="text-[11px] text-muted-foreground">
                       {t('Extra accounts are generated for every selected port — useful when a network throttles 443.')}
