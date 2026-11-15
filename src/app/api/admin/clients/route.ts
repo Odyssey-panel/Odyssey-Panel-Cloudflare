@@ -57,8 +57,8 @@ export async function POST(req: Request) {
 
   const name = (body.name || '').trim()
   if (!name) return Response.json({ error: 'Name required' }, { status: 400 })
-  const exists = await db.client.findUnique({ where: { name } })
-  if (exists) return Response.json({ error: 'Name already exists' }, { status: 409 })
+  // No name pre-check query — the UNIQUE constraint guards it; catching
+  // P2002 saves one D1 round trip per create (SPEED).
 
   const subToken = randomBytes(16).toString('hex')
   const planDays = Math.max(0, Math.round(body.days ?? 0))
@@ -76,7 +76,9 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Invalid expiry date' }, { status: 400 })
   }
 
-  const client = await db.client.create({
+  let client
+  try {
+    client = await db.client.create({
     data: {
       name,
       note: body.note || null,
@@ -93,7 +95,13 @@ export async function POST(req: Request) {
       isp: body.isp?.trim() || null,
       subToken,
     },
-  })
+    })
+  } catch (e) {
+    if ((e as { code?: string })?.code === 'P2002') {
+      return Response.json({ error: 'Name already exists' }, { status: 409 })
+    }
+    throw e
+  }
 
   let generationError: string | null = null
   const requested = (body.protocols || []).filter(Boolean)

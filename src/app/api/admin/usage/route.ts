@@ -26,11 +26,14 @@ export async function bumpRequestCounter(kind: 'sub' | 'admin' = 'sub'): Promise
     const store = env.KV
     if (!store) return
     const k = `${KV_PREFIX}:req:${kind}:${dayKey()}`
-    const cur = parseInt((await store.get(k, 'text')) || '0', 10) || 0
-    await store.put(k, String(cur + 1), { expirationTtl: 90 * 86400 })
     const kt = `${KV_PREFIX}:req:${kind}:total`
-    const tot = parseInt((await store.get(kt, 'text')) || '0', 10) || 0
-    await store.put(kt, String(tot + 1), { expirationTtl: 90 * 86400 })
+    // SPEED: read both counters in parallel, then write both in parallel —
+    // 2 round-trip waves instead of 4 sequential KV hops.
+    const [cur, tot] = await Promise.all([store.get(k, 'text'), store.get(kt, 'text')])
+    await Promise.all([
+      store.put(k, String((parseInt(cur || '0', 10) || 0) + 1), { expirationTtl: 90 * 86400 }),
+      store.put(kt, String((parseInt(tot || '0', 10) || 0) + 1), { expirationTtl: 90 * 86400 }),
+    ])
   } catch {
     // metrics must never break the request
   }

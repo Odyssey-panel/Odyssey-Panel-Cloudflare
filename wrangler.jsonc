@@ -27,6 +27,10 @@
     { "binding": "KV", "id": "bd7f17c9432043d1b585dc4889e74a51" },
     { "binding": "NEXT_INC_CACHE_KV", "id": "77b61c67330e46f5abcd12d16f86dcdd" }
   ],
+  // SPEED: Smart Placement — Cloudflare automatically runs the worker close
+  // to its data (D1 is in APAC), so each request pays the long hop once
+  // instead of paying it for every sequential D1 query.
+  "placement": { "mode": "smart" },
   "observability": {
     "enabled": true
   }

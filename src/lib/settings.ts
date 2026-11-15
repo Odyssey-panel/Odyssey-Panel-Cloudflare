@@ -42,27 +42,49 @@ export const REDACTED_KEYS: Set<keyof PanelSettings> = new Set([
   'panelSecret',
 ])
 
+// ────────────────────────────────────────────────────────────────────────────
+// In-isolate settings cache — SPEED.
+// Every admin request used to pay 1-2 extra D1 round trips just to read
+// settings (session HMAC needs panelSecret, captureOrigin needs publicUrl).
+// Settings change rarely, so a short-TTL isolate cache turns those reads into
+// memory hits. Writes invalidate immediately (same isolate); other isolates
+// converge within the TTL — a 10s window for a rarely-changed row is fine.
+// ────────────────────────────────────────────────────────────────────────────
+const SETTINGS_TTL_MS = 10_000
+let settingsCache: { at: number; map: Record<string, string> } | null = null
+
+/** Drop the cached copy (call after writing settings outside setSettings). */
+export function invalidateSettingsCache() {
+  settingsCache = null
+}
+
 export async function getSettings(): Promise<PanelSettings> {
+  if (settingsCache && Date.now() - settingsCache.at < SETTINGS_TTL_MS) {
+    return { ...SETTINGS_DEFAULTS, ...settingsCache.map } as unknown as PanelSettings
+  }
   const rows = await db.setting.findMany()
-  const map: Record<string, string> = { ...SETTINGS_DEFAULTS }
+  const map: Record<string, string> = {}
   for (const row of rows) map[row.key] = row.value
-  return map as unknown as PanelSettings
+  settingsCache = { at: Date.now(), map }
+  return { ...SETTINGS_DEFAULTS, ...map } as unknown as PanelSettings
 }
 
 export async function getSetting(key: keyof PanelSettings): Promise<string> {
-  const row = await db.setting.findUnique({ where: { key } })
-  return row?.value ?? SETTINGS_DEFAULTS[key]
+  const s = await getSettings()
+  return s[key]
 }
 
 export async function setSettings(patch: Partial<Record<keyof PanelSettings, string>>) {
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined) continue
-    await db.setting.upsert({
-      where: { key },
-      update: { value },
-      create: { key, value },
-    })
+  const entries = Object.entries(patch).filter(([, v]) => v !== undefined) as Array<[string, string]>
+  if (entries.length) {
+    // parallel upserts — one round-trip wave instead of N sequential ones
+    await Promise.all(
+      entries.map(([key, value]) =>
+        db.setting.upsert({ where: { key }, update: { value }, create: { key, value } }),
+      ),
+    )
   }
+  settingsCache = null
 }
 
 export function redactSettings(s: PanelSettings) {

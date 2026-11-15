@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -35,6 +35,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { StatusBadge } from '../status-badge'
 import { CopyButton, CopyField } from '../copy'
 import { QrDialog } from '../qr-dialog'
@@ -689,6 +690,82 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
   const [startOnFirst, setStartOnFirst] = useState(false)
   const [directOn, setDirectOn] = useState(true)
   const { t } = useLang()
+  // Zeus-style 3-tab dialog: general / server & IP / anti-filter & test
+  const [tab, setTab] = useState('general')
+  useEffect(() => {
+    if (open) setTab('general')
+  }, [open])
+  // tab 3 — ping test (panel egress) + tunnel relay probe (browser-side)
+  const { data: settingsData } = useApi<{ settings: { tunnelUrl?: string; tunnelPath?: string; tunnelProxyIp?: string } }>(
+    open ? '/api/admin/settings' : null,
+  )
+  const tunnelInfo = settingsData?.settings
+  const [pingBusy, setPingBusy] = useState(false)
+  const [pingRes, setPingRes] = useState<{
+    colo: string | null
+    avgEgressMs: number | null
+    results: Array<{ label: string; ok: boolean; latencyMs: number; status: number }>
+  } | null>(null)
+  const [probeBusy, setProbeBusy] = useState(false)
+  const [probeRes, setProbeRes] = useState<
+    Array<{ target: string; directMs: number | null; directOk: boolean; relayMs: number | null; relayOk: boolean }>
+  >([])
+
+  const runPing = async () => {
+    setPingBusy(true)
+    try {
+      const r = await api<{
+        colo: string | null
+        avgEgressMs: number | null
+        results: Array<{ label: string; ok: boolean; latencyMs: number; status: number }>
+      }>('/api/admin/ping')
+      setPingRes(r)
+      toast.success(t('Ping finished'))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t('Request failed'))
+    } finally {
+      setPingBusy(false)
+    }
+  }
+
+  const runProbe = async () => {
+    const base = (tunnelInfo?.tunnelUrl || '').trim().replace(/\/+$/, '')
+    const tpath = (tunnelInfo?.tunnelPath || '').trim().replace(/^\/+|\/+$/g, '')
+    if (!base || !tpath) {
+      toast.error(t('Deploy the tunnel first, then test the relays'))
+      return
+    }
+    setProbeBusy(true)
+    setProbeRes([])
+    try {
+      // Browser probes the tunnel directly — Cloudflare blocks worker→worker
+      // fetches on *.workers.dev (error 1042), so the panel server can't.
+      const pool = (tunnelInfo?.tunnelProxyIp || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 12)
+      const targets = pool.length ? pool : [`${base.replace(/^https?:\/\//, '')}:443`]
+      const results = await Promise.all(
+        targets.map(async (tgt) => {
+          const clean = /^[a-zA-Z0-9.:-]+:\d{1,5}$/.test(tgt) ? tgt : `${tgt}:443`
+          const q = `${base}/${tpath}/probe?target=${encodeURIComponent(clean)}`
+          const one = async (relay: boolean) => {
+            const t0 = performance.now()
+            try {
+              const res = await fetch(`${q}${relay ? '&relay=1' : ''}`, { signal: AbortSignal.timeout(9000) })
+              const j = (await res.json()) as { ok?: boolean; ms?: number }
+              return { ok: !!j.ok, ms: typeof j.ms === 'number' ? j.ms : Math.round(performance.now() - t0) }
+            } catch {
+              return { ok: false, ms: null as number | null }
+            }
+          }
+          const [direct, relay] = await Promise.all([one(false), one(true)])
+          return { target: clean, directMs: direct.ms, directOk: direct.ok, relayMs: relay.ms, relayOk: relay.ok }
+        }),
+      )
+      setProbeRes(results)
+      toast.success(t('Relay test finished'))
+    } finally {
+      setProbeBusy(false)
+    }
+  }
 
   const isMtprotoC = protocol === 'mtproto'
   const isSingboxC = protocol === 'hysteria2' || protocol === 'tuic'
@@ -807,8 +884,15 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5">
-          {/* ── 1 · User ── */}
+        <Tabs value={tab} onValueChange={setTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="general">{t('General')}</TabsTrigger>
+            <TabsTrigger value="server">{t('Server & IP')}</TabsTrigger>
+            <TabsTrigger value="antifilter">{t('Anti-filter & test')}</TabsTrigger>
+          </TabsList>
+
+          {/* ── Tab 1 · General (default) — name, protocol, encryption, quotas ── */}
+          <TabsContent value="general" className="mt-4 space-y-5">
           <section className="space-y-3">
             <div className="flex items-center gap-2">
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-odyssey-navy/10 text-[10px] font-bold text-odyssey-deep dark:bg-odyssey-cyan/15 dark:text-odyssey-bright">1</span>
@@ -900,58 +984,6 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
 
             {withAccount && (
               <div className="space-y-3.5">
-                {/* ── Fragment — the requested one-tap anti-filter button, at the
-                       top of creation, applied to THIS config only ── */}
-                {showFragmentC && (
-                  <div
-                    className={`rounded-xl border p-3 transition-colors ${
-                      fragmentOn
-                        ? 'border-odyssey-cyan/40 bg-odyssey-cyan/[0.07] shadow-[inset_0_0_0_1px_oklch(0.72_0.1_214/0.12)]'
-                        : 'border-border/60'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-odyssey-cyan/15 ring-1 ring-inset ring-odyssey-cyan/30">
-                          <Zap className="h-4 w-4 text-odyssey-deep dark:text-odyssey-bright" />
-                        </span>
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold leading-tight">{t('Fragment (anti-filter)')}</div>
-                          <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
-                            {fragmentOn ? t('ON — this config only') : t('OFF — plain TLS handshake')}
-                          </div>
-                        </div>
-                      </div>
-                      <Switch checked={fragmentOn} onCheckedChange={setFragmentOn} aria-label={t('Fragment (anti-filter)')} />
-                    </div>
-                    {fragmentOn && (
-                      <div className="mt-3 space-y-2">
-                        <div className="flex flex-wrap gap-1">
-                          {ISP_PRESETS.map((isp) => (
-                            <button
-                              key={isp.id}
-                              type="button"
-                              title={isp.note}
-                              onClick={() => setFragment(ispFragment(isp))}
-                              aria-pressed={ispFragment(isp) === fragment}
-                              className="fragment-preset rounded-full border bg-white/[0.03] px-2 py-0.5 text-[11px] transition-all hover:-translate-y-0.5 hover:border-odyssey-cyan/40 hover:bg-odyssey-cyan/10 dark:bg-white/[0.04]"
-                            >
-                              {isp.name}
-                            </button>
-                          ))}
-                        </div>
-                        <Input
-                          value={fragment}
-                          onChange={(e) => setFragment(e.target.value)}
-                          placeholder="100-200,20-30,tlshello"
-                          dir="ltr"
-                          className="font-mono text-xs"
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 {/* Edge tunnel (builtin): multi-protocol batch generation —
                     vless + trojan + shadowsocks in one click, plus optional
                     per-protocol variants and TLS fingerprint. */}
@@ -989,124 +1021,25 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                         {t('Every selected protocol is generated on the edge tunnel — no VPS needed.')}
                       </p>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5">
-                        <Label>{t('Address variants')}</Label>
-                        <div className="flex flex-wrap gap-3 pt-1">
-                          {([
-                            ['domain', addrDomain, setAddrDomain, t('Domain')],
-                            ['ipv4', addrV4, setAddrV4, t('IPv4')],
-                            ['ipv6', addrV6, setAddrV6, t('IPv6')],
-                          ] as Array<[string, boolean, (v: boolean) => void, string]>).map(([key, val, setter, label]) => (
-                            <label key={key} className="flex cursor-pointer items-center gap-1.5 text-xs">
-                              <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={val} onChange={(e) => setter(e.target.checked)} />
-                              {label}
-                            </label>
-                          ))}
-                        </div>
-                        <p className="text-[11px] text-muted-foreground">{t('Some ISPs route IPv4/IPv6 differently — extra variants help clients find the fastest path.')}</p>
+                        <Label htmlFor="c-count">{t('Variants per protocol')}</Label>
+                        <Input id="c-count" type="number" min="1" max="8" value={genCount} onChange={(e) => setGenCount(e.target.value)} />
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1.5">
-                          <Label htmlFor="c-count">{t('Variants per protocol')}</Label>
-                          <Input id="c-count" type="number" min="1" max="8" value={genCount} onChange={(e) => setGenCount(e.target.value)} />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label>{t('TLS fingerprint')}</Label>
-                          <Select value={fingerprint} onValueChange={setFingerprint}>
-                            <SelectTrigger aria-label={t('TLS fingerprint')}><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              {['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', '360', 'qq', 'random'].map((f) => (
-                                <SelectItem key={f} value={f}>{f}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                      <div className="space-y-1.5">
+                        <Label>{t('TLS fingerprint')}</Label>
+                        <Select value={fingerprint} onValueChange={setFingerprint}>
+                          <SelectTrigger aria-label={t('TLS fingerprint')}><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', '360', 'qq', 'random'].map((f) => (
+                              <SelectItem key={f} value={f}>{f}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
 
-                    {/* Zeus-grade: TLS port fan-out — one extra account per port */}
-                    <div className="space-y-1.5">
-                      <Label>{t('TLS ports (multi-select)')}</Label>
-                      <div className="flex flex-wrap gap-1.5">
-                        {[443, 2053, 2083, 2087, 2096, 8443].map((p) => {
-                          const base = p === 443
-                          const on = base || portsSel.has(p)
-                          return (
-                            <button
-                              key={p}
-                              type="button"
-                              disabled={base}
-                              onClick={() =>
-                                setPortsSel((prev) => {
-                                  const next = new Set(prev)
-                                  if (next.has(p)) next.delete(p)
-                                  else next.add(p)
-                                  return next
-                                })
-                              }
-                              className={`rounded-lg border px-2.5 py-1.5 font-mono text-xs font-medium transition-colors ${
-                                on
-                                  ? 'border-cyan-400/40 bg-cyan-400/10 text-foreground'
-                                  : 'border-border/60 text-muted-foreground hover:bg-white/[0.04]'
-                              } ${base ? 'cursor-default opacity-70' : ''}`}
-                            >
-                              {p}
-                            </button>
-                          )
-                        })}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        {t('Extra accounts are generated for every selected port — useful when a network throttles 443.')}
-                      </p>
-                    </div>
-
-                    {/* Zeus-grade: ECH (Encrypted ClientHello) */}
-                    <div
-                      className={`rounded-xl border p-3 transition-colors ${
-                        echOn
-                          ? 'border-odyssey-cyan/40 bg-odyssey-cyan/[0.07] shadow-[inset_0_0_0_1px_oklch(0.72_0.1_214/0.12)]'
-                          : 'border-border/60'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-2.5">
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-odyssey-cyan/15 ring-1 ring-inset ring-odyssey-cyan/30">
-                            <ShieldCheck className="h-4 w-4 text-odyssey-deep dark:text-odyssey-bright" />
-                          </span>
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold leading-tight">{t('ECH (Encrypted ClientHello)')}</div>
-                            <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
-                              {echOn ? t('ON — SNI stays hidden from DPI') : t('OFF — plain ClientHello')}
-                            </div>
-                          </div>
-                        </div>
-                        <Switch checked={echOn} onCheckedChange={setEchOn} aria-label={t('ECH (Encrypted ClientHello)')} />
-                      </div>
-                      {echOn && (
-                        <div className="mt-3 space-y-2">
-                          <div className="flex gap-2">
-                            <Input
-                              value={echDomain}
-                              onChange={(e) => setEchDomain(e.target.value)}
-                              placeholder="speed.cloudflare.com"
-                              dir="ltr"
-                              className="font-mono text-xs"
-                            />
-                            <Button type="button" variant="outline" size="sm" onClick={() => void fetchEch()} disabled={echBusy} className="shrink-0">
-                              {echBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} {t('Fetch ECH')}
-                            </Button>
-                          </div>
-                          <Input
-                            value={ech}
-                            onChange={(e) => setEch(e.target.value)}
-                            placeholder={t('ECH config (auto-filled by Fetch, or paste your own)')}
-                            dir="ltr"
-                            className="font-mono text-[11px]"
-                          />
-                        </div>
-                      )}
-                    </div>
+                    {/* Zeus-grade: TLS port fan-out & ECH moved to the “Server & IP” tab */}
                   </div>
                 ) : (
                 /* Protocol — quick chips instead of a dropdown */
@@ -1137,6 +1070,21 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                 </div>
                 )}
 
+                {isMtprotoC && (
+                  <p className="rounded-lg border border-dashed p-2.5 text-xs leading-relaxed text-muted-foreground">{t('MTProto: address = server IP, port = proxy port — the secret is generated automatically. Users open the link in Telegram.')}</p>
+                )}
+                {isSingboxC && (
+                  <p className="rounded-lg border border-dashed p-2.5 text-xs leading-relaxed text-muted-foreground">{t('Hysteria2/TUIC need a sing-box based server (Hiddify, s-ui, …); the config file has both client and server JSON.')}</p>
+                )}
+              </div>
+            )}
+          </section>
+          </TabsContent>
+
+          {/* ── Tab 2 · Server & IP — IPs, domains, ports, ECH ── */}
+          <TabsContent value="server" className="mt-4 space-y-3.5">
+            {withAccount ? (
+              <div className="space-y-3.5">
                 {/* Where the config runs — always visible so the mode can be
                     switched back and forth (was locked once "own" was chosen) */}
                 {usePicker && (
@@ -1152,7 +1100,25 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                   </div>
                 )}
 
-                {/* Manual server fields — only when the admin brings a server */}
+                {backendMode === 'builtin' && (
+                  <div className="space-y-1.5">
+                    <Label>{t('Address variants')}</Label>
+                    <div className="flex flex-wrap gap-3 pt-1">
+                      {([
+                        ['domain', addrDomain, setAddrDomain, t('Domain')],
+                        ['ipv4', addrV4, setAddrV4, t('IPv4')],
+                        ['ipv6', addrV6, setAddrV6, t('IPv6')],
+                      ] as Array<[string, boolean, (v: boolean) => void, string]>).map(([key, val, setter, label]) => (
+                        <label key={key} className="flex cursor-pointer items-center gap-1.5 text-xs">
+                          <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={val} onChange={(e) => setter(e.target.checked)} />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">{t('Some ISPs route IPv4/IPv6 differently — extra variants help clients find the fastest path.')}</p>
+                  </div>
+                )}
+
                 {(!usePicker || backendMode === 'own') && (
                   <>
                     <div className="grid gap-3 sm:grid-cols-3">
@@ -1217,16 +1183,254 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                     )}
                   </>
                 )}
-                {isMtprotoC && (
-                  <p className="rounded-lg border border-dashed p-2.5 text-xs leading-relaxed text-muted-foreground">{t('MTProto: address = server IP, port = proxy port — the secret is generated automatically. Users open the link in Telegram.')}</p>
+
+                {/* Zeus-grade: TLS port fan-out — one extra account per port */}
+                {backendMode === 'builtin' && (
+                  <div className="space-y-1.5">
+                    <Label>{t('TLS ports (multi-select)')}</Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[443, 2053, 2083, 2087, 2096, 8443].map((p) => {
+                        const base = p === 443
+                        const on = base || portsSel.has(p)
+                        return (
+                          <button
+                            key={p}
+                            type="button"
+                            disabled={base}
+                            onClick={() =>
+                              setPortsSel((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(p)) next.delete(p)
+                                else next.add(p)
+                                return next
+                              })
+                            }
+                            className={`rounded-lg border px-2.5 py-1.5 font-mono text-xs font-medium transition-colors ${
+                              on
+                                ? 'border-cyan-400/40 bg-cyan-400/10 text-foreground'
+                                : 'border-border/60 text-muted-foreground hover:bg-white/[0.04]'
+                            } ${base ? 'cursor-default opacity-70' : ''}`}
+                          >
+                            {p}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      {t('Extra accounts are generated for every selected port — useful when a network throttles 443.')}
+                    </p>
+                  </div>
                 )}
-                {isSingboxC && (
-                  <p className="rounded-lg border border-dashed p-2.5 text-xs leading-relaxed text-muted-foreground">{t('Hysteria2/TUIC need a sing-box based server (Hiddify, s-ui, …); the config file has both client and server JSON.')}</p>
+
+                {/* Zeus-grade: ECH (Encrypted ClientHello) */}
+                {backendMode === 'builtin' && (
+                  <div
+                    className={`rounded-xl border p-3 transition-colors ${
+                      echOn
+                        ? 'border-odyssey-cyan/40 bg-odyssey-cyan/[0.07] shadow-[inset_0_0_0_1px_oklch(0.72_0.1_214/0.12)]'
+                        : 'border-border/60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-odyssey-cyan/15 ring-1 ring-inset ring-odyssey-cyan/30">
+                          <ShieldCheck className="h-4 w-4 text-odyssey-deep dark:text-odyssey-bright" />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold leading-tight">{t('ECH (Encrypted ClientHello)')}</div>
+                          <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+                            {echOn ? t('ON — SNI stays hidden from DPI') : t('OFF — plain ClientHello')}
+                          </div>
+                        </div>
+                      </div>
+                      <Switch checked={echOn} onCheckedChange={setEchOn} aria-label={t('ECH (Encrypted ClientHello)')} />
+                    </div>
+                    {echOn && (
+                      <div className="mt-3 space-y-2">
+                        <div className="flex gap-2">
+                          <Input
+                            value={echDomain}
+                            onChange={(e) => setEchDomain(e.target.value)}
+                            placeholder="speed.cloudflare.com"
+                            dir="ltr"
+                            className="font-mono text-xs"
+                          />
+                          <Button type="button" variant="outline" size="sm" onClick={() => void fetchEch()} disabled={echBusy} className="shrink-0">
+                            {echBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} {t('Fetch ECH')}
+                          </Button>
+                        </div>
+                        <Input
+                          value={ech}
+                          onChange={(e) => setEch(e.target.value)}
+                          placeholder={t('ECH config (auto-filled by Fetch, or paste your own)')}
+                          dir="ltr"
+                          className="font-mono text-[11px]"
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
+            ) : (
+              <p className="rounded-lg border border-dashed p-2.5 text-xs leading-relaxed text-muted-foreground">
+                {t('Turn on "Generate config now" in the first tab — these settings shape the generated config.')}
+              </p>
             )}
-          </section>
-        </div>
+          </TabsContent>
+
+          {/* ── Tab 3 · Anti-filter & test — proxy on config + ping test ── */}
+          <TabsContent value="antifilter" className="mt-4 space-y-3.5">
+            {withAccount ? (
+              <div className="space-y-3.5">
+                {/* Fragment — the one-tap anti-filter, applied to THIS config only */}
+                {showFragmentC && (
+                  <div
+                    className={`rounded-xl border p-3 transition-colors ${
+                      fragmentOn
+                        ? 'border-odyssey-cyan/40 bg-odyssey-cyan/[0.07] shadow-[inset_0_0_0_1px_oklch(0.72_0.1_214/0.12)]'
+                        : 'border-border/60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-odyssey-cyan/15 ring-1 ring-inset ring-odyssey-cyan/30">
+                          <Zap className="h-4 w-4 text-odyssey-deep dark:text-odyssey-bright" />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold leading-tight">{t('Fragment (anti-filter)')}</div>
+                          <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+                            {fragmentOn ? t('ON — this config only') : t('OFF — plain TLS handshake')}
+                          </div>
+                        </div>
+                      </div>
+                      <Switch checked={fragmentOn} onCheckedChange={setFragmentOn} aria-label={t('Fragment (anti-filter)')} />
+                    </div>
+                    {fragmentOn && (
+                      <div className="mt-3 space-y-2">
+                        <div className="flex flex-wrap gap-1">
+                          {ISP_PRESETS.map((isp) => (
+                            <button
+                              key={isp.id}
+                              type="button"
+                              title={isp.note}
+                              onClick={() => setFragment(ispFragment(isp))}
+                              aria-pressed={ispFragment(isp) === fragment}
+                              className="fragment-preset rounded-full border bg-white/[0.03] px-2 py-0.5 text-[11px] transition-all hover:-translate-y-0.5 hover:border-odyssey-cyan/40 hover:bg-odyssey-cyan/10 dark:bg-white/[0.04]"
+                            >
+                              {isp.name}
+                            </button>
+                          ))}
+                        </div>
+                        <Input
+                          value={fragment}
+                          onChange={(e) => setFragment(e.target.value)}
+                          placeholder="100-200,20-30,tlshello"
+                          dir="ltr"
+                          className="font-mono text-xs"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!showFragmentC && (
+                  <p className="rounded-lg border border-dashed p-2.5 text-xs leading-relaxed text-muted-foreground">
+                    {t('The selected protocol does not support TLS fragment.')}
+                  </p>
+                )}
+
+                {/* Ping test — panel edge egress latency */}
+                <div className="space-y-2 rounded-xl border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-odyssey-cyan/15 ring-1 ring-inset ring-odyssey-cyan/30">
+                        <Activity className="h-4 w-4 text-odyssey-deep dark:text-odyssey-bright" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold leading-tight">{t('Ping test')}</div>
+                        <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+                          {t('Latency from the panel edge to the public internet')}
+                        </div>
+                      </div>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={() => void runPing()} disabled={pingBusy} className="shrink-0">
+                      {pingBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Activity className="h-3.5 w-3.5" />} {t('Run test')}
+                    </Button>
+                  </div>
+                  {pingRes && (
+                    <div className="space-y-1.5 pt-1">
+                      <div className="text-[11px] text-muted-foreground">
+                        {pingRes.colo && (
+                          <>
+                            {t('Edge PoP')}: <span className="font-mono font-medium text-foreground/80">{pingRes.colo}</span>
+                          </>
+                        )}
+                        {pingRes.avgEgressMs !== null && (
+                          <> · {t('Avg egress latency')}: <span className="font-mono font-medium text-foreground/80">{pingRes.avgEgressMs} ms</span></>
+                        )}
+                      </div>
+                      <div className="grid gap-1.5 sm:grid-cols-2">
+                        {pingRes.results.map((r) => (
+                          <div key={r.label} className="flex items-center justify-between gap-2 rounded-lg border bg-muted/20 px-2.5 py-1.5 text-xs">
+                            <span className="flex items-center gap-1.5">
+                              {r.ok ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : <XCircle className="h-3.5 w-3.5 text-destructive" />}
+                              {r.label}
+                            </span>
+                            <span className="font-mono">{r.latencyMs} ms</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tunnel & relay test — what the generated config actually uses */}
+                <div className="space-y-2 rounded-xl border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-odyssey-cyan/15 ring-1 ring-inset ring-odyssey-cyan/30">
+                        <Server className="h-4 w-4 text-odyssey-deep dark:text-odyssey-bright" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold leading-tight">{t('Tunnel & relay test')}</div>
+                        <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+                          {t('Direct and relayed latency for every proxy-IP, measured from your browser')}
+                        </div>
+                      </div>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={() => void runProbe()} disabled={probeBusy} className="shrink-0">
+                      {probeBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} {t('Run test')}
+                    </Button>
+                  </div>
+                  {probeRes.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      {probeRes.map((r) => (
+                        <div key={r.target} className="rounded-lg border bg-muted/20 px-2.5 py-1.5">
+                          <div className="font-mono text-[11px] text-foreground/80">{r.target}</div>
+                          <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
+                            <span className="flex items-center gap-1">
+                              {r.directOk ? <CheckCircle2 className="h-3 w-3 text-emerald-500" /> : <XCircle className="h-3 w-3 text-destructive" />}
+                              {t('Direct')}:
+                              <span className="font-mono">{r.directMs !== null ? `${r.directMs} ms` : '—'}</span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              {r.relayOk ? <CheckCircle2 className="h-3 w-3 text-emerald-500" /> : <XCircle className="h-3 w-3 text-destructive" />}
+                              {t('Relay')}:
+                              <span className="font-mono">{r.relayMs !== null ? `${r.relayMs} ms` : '—'}</span>
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="rounded-lg border border-dashed p-2.5 text-xs leading-relaxed text-muted-foreground">
+                {t('Turn on "Generate config now" in the first tab — fragment and tests apply to the generated config.')}
+              </p>
+            )}
+          </TabsContent>
+        </Tabs>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('Cancel')}</Button>

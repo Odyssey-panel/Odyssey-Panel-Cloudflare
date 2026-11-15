@@ -230,28 +230,33 @@ export async function persistAccounts(
   clientId: string,
   accounts: GeneratedAccount[],
 ): Promise<GeneratedAccount[]> {
-  for (const a of accounts) {
-    await db.proxy.create({
-      data: {
-        clientId,
-        protocol: a.protocol,
-        remark: a.remark,
-        address: a.address,
-        port: a.port,
-        secret: a.secret,
-        sni: a.sni,
-        host: a.host,
-        path: a.path,
-        transport: a.transport,
-        tls: a.tls,
-        fragment: a.fragment,
-        fp: a.fp,
-        ech: a.ech,
-        plugin: a.plugin,
-        serverConfig: a.serverConfig,
-      },
-    })
-  }
+  // SPEED: insert all accounts in parallel — one round-trip wave instead of
+  // one sequential D1 insert per account (a 18-account config used to pay
+  // 18 sequential round trips before this change).
+  await Promise.all(
+    accounts.map((a) =>
+      db.proxy.create({
+        data: {
+          clientId,
+          protocol: a.protocol,
+          remark: a.remark,
+          address: a.address,
+          port: a.port,
+          secret: a.secret,
+          sni: a.sni,
+          host: a.host,
+          path: a.path,
+          transport: a.transport,
+          tls: a.tls,
+          fragment: a.fragment,
+          fp: a.fp,
+          ech: a.ech,
+          plugin: a.plugin,
+          serverConfig: a.serverConfig,
+        },
+      }),
+    ),
+  )
   return accounts
 }
 

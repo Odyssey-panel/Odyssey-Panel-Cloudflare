@@ -11,6 +11,22 @@ export type Lang = 'fa' | 'en'
 const FA: Record<string, string> = {
   // ── Shell / navigation ───────────────────────────────────────────────
   'Odyssey Panel': 'اودیسه',
+  // ── Zeus-style 3-tab create dialog ─────────────────────────────────
+  'General': 'عمومی',
+  'Server & IP': 'سرور و آی‌پی',
+  'Anti-filter & test': 'ضد فیلتر و تست',
+  'Ping finished': 'تست پینگ تمام شد',
+  'Edge PoP': 'نود لبهٔ کلادفلر',
+  'Avg egress latency': 'میانگین تأخیر خروج',
+  'Latency from the panel edge to the public internet': 'تأخیر از لبهٔ پنل تا اینترنت عمومی',
+  'Tunnel & relay test': 'تست تونل و رله',
+  'Direct and relayed latency for every proxy-IP, measured from your browser': 'تأخیر مستقیم و رله‌شده برای هر پروکسی-آی‌پی، اندازه‌گیری از مرورگر تو',
+  'Deploy the tunnel first, then test the relays': 'اول تونل را دیپلوی کن، بعد رله‌ها را تست کن',
+  'Direct': 'مستقیم',
+  'Relay': 'رله',
+  'The selected protocol does not support TLS fragment.': 'پروتکل انتخاب‌شده فرگمنت TLS ندارد.',
+  'Turn on "Generate config now" in the first tab — these settings shape the generated config.': 'اول در تبِ اول «ساخت کانفیگ» را روشن کن — این تنظیمات روی کانفیگِ ساخته‌شده اعمال می‌شوند.',
+  'Turn on "Generate config now" in the first tab — fragment and tests apply to the generated config.': 'اول در تبِ اول «ساخت کانفیگ» را روشن کن — فرگمنت و تست‌ها روی کانفیگِ ساخته‌شده اعمال می‌شوند.',
   'User created — no server address given, so no proxy account was generated':
     'کاربر ساخته شد — چون آدرس سرور ندادی، کانفیگی ساخته نشد؛ بعداً از مدیریت کاربر اضافه کن',
   'Personal proxy control center': 'مرکز کنترل شخصی پروکسی',
