@@ -11,7 +11,7 @@ export async function GET() {
   return jsonSafe({ settings: redactSettings(settings) })
 }
 
-const EDITABLE_KEYS = new Set(['publicUrl', 'ispPresets', 'tunnelProxyIp', 'tunnelBlockAds', 'tunnelBlockPorn', 'tunnelBlockExtra'])
+const EDITABLE_KEYS = new Set(['publicUrl', 'ispPresets', 'tunnelProxyIp', 'tunnelBlockAds', 'tunnelBlockPorn', 'tunnelBlockExtra', 'tunnelCleanIp'])
 
 export async function PUT(req: Request) {
   const unauthorized = await requireAuth()

@@ -638,6 +638,12 @@ const FA: Record<string, string> = {
   'Proxy-IP relay pool (comma-separated IP:port)': 'استخر ریلهٔ Proxy-IP (با کاما، به شکل IP:port)',
   'Used only as a fallback when a target site is itself behind Cloudflare and the edge cannot reach it directly.':
     'فقط به‌عنوان مسیر جایگزین استفاده می‌شود؛ وقتی خودِ سایت مقصد پشت کلادفلر باشد و لبه نتواند مستقیم برسد',
+  'Clean connect IP (optional)': 'آی‌پی تمیز برای اتصال (اختیاری)',
+  'When set, new configs dial this optimized Cloudflare edge IP directly — the biggest real-speed lever on ISPs that throttle anycast. SNI/Host stay the tunnel host. Find candidates with a Cloudflare IP scanner, leave empty for the tunnel address.':
+    'وقتی تنظیم شود، کانفیگ‌های جدید مستقیم به این آی‌پی تمیز کلادفلر وصل می‌شوند — بزرگ‌ترین اهرم سرعت واقعی روی اپراتورهایی که مسیر پیش‌فرض را محدود می‌کنند. SNI/Host همان دامنهٔ تونل می‌ماند. آی‌پی مناسب را با ابزارهای اسکن IP کلادفلر پیدا کنید؛ خالی بگذارید تا از آدرس خود تونل استفاده شود',
+  'Clean IP': 'آی‌پی تمیز',
+  'Clean IP is active — “clean” configs dial the optimized edge IP from Settings while SNI/Host stay the tunnel host.':
+    'آی‌پی تمیز فعال است — کانفیگ‌های «clean» مستقیم به آی‌پی بهینهٔ تنظیم‌شده در تنظیمات وصل می‌شوند و SNI/Host روی دامنهٔ تونل می‌ماند',
   'Block ads & trackers': 'مسدودسازی تبلیغات و ردیاب‌ها',
   'Drops connections to known ad/tracker domains at the tunnel.':
     'اتصال به دامنه‌های شناخته‌شدهٔ تبلیغاتی/ردیاب را در تونل قطع می‌کند',

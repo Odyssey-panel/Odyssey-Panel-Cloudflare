@@ -22,6 +22,7 @@ type Settings = {
   tunnelUrl: string
   tunnelPath: string
   tunnelProxyIp: string
+  tunnelCleanIp: string
   tunnelBlockAds: string
   tunnelBlockPorn: string
   tunnelBlockExtra: string
@@ -193,6 +194,21 @@ export function SettingsView() {
             />
             <p className="text-xs leading-relaxed text-muted-foreground">
               {t('Used only as a fallback when a target site is itself behind Cloudflare and the edge cannot reach it directly.')}
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="st-cleanip">{t('Clean connect IP (optional)')}</Label>
+            <Input
+              id="st-cleanip"
+              value={form.tunnelCleanIp || ''}
+              onChange={(e) => setForm((f) => (f ? { ...f, tunnelCleanIp: e.target.value } : f))}
+              placeholder="104.16.180.7  ·  or any clean edge IP / host"
+              dir="ltr"
+              className="font-mono text-xs"
+            />
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {t('When set, new configs dial this optimized Cloudflare edge IP directly — the biggest real-speed lever on ISPs that throttle anycast. SNI/Host stay the tunnel host. Find candidates with a Cloudflare IP scanner, leave empty for the tunnel address.')}
             </p>
           </div>
 

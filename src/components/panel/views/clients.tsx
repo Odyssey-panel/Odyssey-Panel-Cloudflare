@@ -681,6 +681,9 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
   const [addrDomain, setAddrDomain] = useState(true)
   const [addrV4, setAddrV4] = useState(false)
   const [addrV6, setAddrV6] = useState(false)
+  // clean-IP variant: on by default whenever the admin configured one —
+  // Zeus-style, optimized speed without any extra click
+  const [addrClean, setAddrClean] = useState(true)
   const [genCount, setGenCount] = useState('1')
   // Zeus-grade extras: TLS port fan-out, ECH, first-connection expiry, direct
   const [portsSel, setPortsSel] = useState<Set<number>>(new Set())
@@ -733,10 +736,11 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
     })
   }
   // tab 3 — ping test (panel egress) + tunnel relay probe (browser-side)
-  const { data: settingsData } = useApi<{ settings: { tunnelUrl?: string; tunnelPath?: string; tunnelProxyIp?: string } }>(
+  const { data: settingsData } = useApi<{ settings: { tunnelUrl?: string; tunnelPath?: string; tunnelProxyIp?: string; tunnelCleanIp?: string } }>(
     open ? '/api/admin/settings' : null,
   )
   const tunnelInfo = settingsData?.settings
+  const cleanIpOk = Boolean((tunnelInfo?.tunnelCleanIp || '').trim())
   const [pingBusy, setPingBusy] = useState(false)
   const [pingRes, setPingRes] = useState<{
     colo: string | null
@@ -871,10 +875,11 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                 protocols: Array.from(tunnelProtos),
                 count: Math.max(1, Number(genCount) || 1),
                 addressTypes: [
+                  cleanIpOk && addrClean && 'clean',
                   addrDomain && 'domain',
                   addrV4 && 'ipv4',
                   addrV6 && 'ipv6',
-                ].filter(Boolean) as Array<'domain' | 'ipv4' | 'ipv6'>,
+                ].filter(Boolean) as Array<'clean' | 'domain' | 'ipv4' | 'ipv6'>,
                 fragment: fragmentOn ? fragment.trim() || undefined : undefined,
                 ech: echOn && ech.trim() ? ech.trim() : undefined,
                 ports: Array.from(portsSel),
@@ -1149,6 +1154,7 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                     <Label>{t('Address variants')}</Label>
                     <div className="flex flex-wrap gap-3 pt-1">
                       {([
+                        ...(cleanIpOk ? [['clean', addrClean, setAddrClean, t('Clean IP')]] : []),
                         ['domain', addrDomain, setAddrDomain, t('Domain')],
                         ['ipv4', addrV4, setAddrV4, t('IPv4')],
                         ['ipv6', addrV6, setAddrV6, t('IPv6')],
@@ -1159,7 +1165,11 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                         </label>
                       ))}
                     </div>
-                    <p className="text-[11px] text-muted-foreground">{t('Some ISPs route IPv4/IPv6 differently — extra variants help clients find the fastest path.')}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {cleanIpOk
+                        ? t('Clean IP is active — “clean” configs dial the optimized edge IP from Settings while SNI/Host stay the tunnel host.')
+                        : t('Some ISPs route IPv4/IPv6 differently — extra variants help clients find the fastest path.')}
+                    </p>
                   </div>
                 )}
 

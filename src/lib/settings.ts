@@ -19,6 +19,10 @@ export type PanelSettings = {
   tunnelBlockPorn: string
   /** Extra comma-separated domain suffixes to always block in the tunnel. */
   tunnelBlockExtra: string
+  /** Optional clean/best Cloudflare edge IP (or host) that new configs dial
+   *  directly instead of the tunnel hostname — SNI/Host stay the tunnel host.
+   *  The single biggest real-throughput lever on ISPs with bad anycast routing. */
+  tunnelCleanIp: string
 }
 
 /** Source of truth for defaults — missing DB rows fall back to these. */
@@ -34,6 +38,7 @@ export const SETTINGS_DEFAULTS: Record<keyof PanelSettings, string> = {
   tunnelBlockAds: '',
   tunnelBlockPorn: '',
   tunnelBlockExtra: '',
+  tunnelCleanIp: '',
 }
 
 /** Keys hidden from the settings GET response. */

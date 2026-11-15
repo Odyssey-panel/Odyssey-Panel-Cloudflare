@@ -31,7 +31,7 @@ type CreateBody = {
   // account generation
   protocols?: string[] // vless | trojan | shadowsocks (multi-select)
   workers?: string[] // tunnel endpoint urls (multi-location)
-  addressTypes?: Array<'domain' | 'ipv4' | 'ipv6'>
+  addressTypes?: Array<'clean' | 'domain' | 'ipv4' | 'ipv6'>
   count?: number
   fragment?: string
   sni?: string

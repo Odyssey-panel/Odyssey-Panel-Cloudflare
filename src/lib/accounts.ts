@@ -29,8 +29,8 @@ export type GenerateOptions = {
   protocols: string[]
   /** explicit endpoint url/host(s) — overrides the deployed tunnel */
   workers?: string[]
-  /** generate extra per-protocol variants: domain, ipv4, ipv6 */
-  addressTypes?: Array<'domain' | 'ipv4' | 'ipv6'>
+  /** generate extra per-protocol variants: clean IP, domain, ipv4, ipv6 */
+  addressTypes?: Array<'clean' | 'domain' | 'ipv4' | 'ipv6'>
   /** how many repeats per protocol (max 8 per protocol) */
   count?: number
   fragment?: string | null
@@ -209,11 +209,26 @@ export async function generateAccounts(opts: GenerateOptions): Promise<Generated
   // SINGLE deployment-wide password (TUNNEL_SS_PASSWORD / PATH_SECRET) — a
   // per-account random password can never decrypt. The account password must
   // therefore BE the tunnel secret path (baked at deploy time).
+  // One settings read serves both this and the clean-IP override below.
+  const { getSettings } = await import('@/lib/settings')
+  const settingsRow = await getSettings()
   let ssPassword: string | null = null
   if (protocols.includes('shadowsocks')) {
-    const { getSettings } = await import('@/lib/settings')
-    const p = (await getSettings()).tunnelPath.replace(/^\/+|\/+$/g, '').trim()
+    const p = (settingsRow.tunnelPath || '').replace(/^\/+|\/+$/g, '').trim()
     ssPassword = p || null
+  }
+
+  // Clean-IP connect override (Zeus behavior): when the admin sets a clean /
+  // best Cloudflare edge IP in Settings, configs can dial it directly while
+  // SNI/Host stay the real tunnel host — the biggest real-throughput lever
+  // on ISPs that throttle or badly route the default anycast path.
+  let cleanIp = (settingsRow.tunnelCleanIp || '').trim()
+  if (cleanIp) {
+    try {
+      cleanIp = new URL(cleanIp.includes('://') ? cleanIp : `https://${cleanIp}`).hostname
+    } catch {
+      /* keep as typed */
+    }
   }
 
   const count = Math.min(Math.max(1, opts.count ?? 1), 8)
@@ -225,12 +240,20 @@ export async function generateAccounts(opts: GenerateOptions): Promise<Generated
 
   outer: for (let li = 0; li < endpoints.length; li++) {
     const ep = endpoints[li]
-    const variants = await hostVariants(
-      ep.host,
+    // Variant selection: explicit picks win. With a clean IP configured the
+    // default becomes clean + domain (clean first — Zeus-style speed default).
+    const rawTypes: Array<'clean' | 'domain' | 'ipv4' | 'ipv6'> =
       opts.addressTypes && opts.addressTypes.length
         ? opts.addressTypes
-        : (['domain'] as Array<'domain' | 'ipv4' | 'ipv6'>),
-    )
+        : cleanIp
+          ? (['clean', 'domain'] as Array<'clean' | 'domain' | 'ipv4' | 'ipv6'>)
+          : (['domain'] as Array<'clean' | 'domain' | 'ipv4' | 'ipv6'>)
+    const wantClean = rawTypes.includes('clean') && !!cleanIp && cleanIp !== ep.host
+    const dnsTypes = rawTypes.filter((t) => t !== 'clean') as Array<'domain' | 'ipv4' | 'ipv6'>
+    const resolved = dnsTypes.length ? await hostVariants(ep.host, dnsTypes) : []
+    const variants = wantClean
+      ? [{ address: cleanIp, sni: ep.host, kind: 'clean' as const }, ...resolved]
+      : resolved
     for (const proto of protocols) {
       for (let i = 0; i < count; i++) {
         for (const v of variants) {
@@ -257,7 +280,8 @@ export async function generateAccounts(opts: GenerateOptions): Promise<Generated
             if (ports.length > 1 || port !== 443) {
               tags.push(plain ? `plain ${port}` : port !== 443 ? `TLS ${port}` : '')
             }
-            if (variants.length > 1 && v.kind !== 'domain') tags.push(v.kind === 'ipv4' ? 'v4' : 'v6')
+            if (variants.length > 1 && v.kind !== 'domain')
+              tags.push(v.kind === 'clean' ? 'clean' : v.kind === 'ipv4' ? 'v4' : 'v6')
             if (endpoints.length > 1) tags.push(endpointTag(ep.host))
             const base = `${opts.name} · ${protoTag}${tags.filter(Boolean).length ? ` · ${tags.filter(Boolean).join(' · ')}` : ''}`
             const seenN = (seen.get(base) || 0) + 1
