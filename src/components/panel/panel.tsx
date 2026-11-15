@@ -42,7 +42,7 @@ import { TelegramProxyView } from './views/telegram-proxy'
 export type ViewKey = 'dashboard' | 'clients' | 'antifilter' | 'nodes' | 'scanner' | 'telegram' | 'settings'
 
 /** Version badge shown at the bottom of the panel (mobile + desktop footer). */
-export const PANEL_VERSION = 'V9.6'
+export const PANEL_VERSION = 'V9.7'
 
 export const NAV_ITEMS: {
   key: ViewKey
@@ -230,7 +230,7 @@ export function Panel({ initialView }: { initialView?: ViewKey }) {
           {content}
         </main>
 
-        {/* Mobile footer — version stamp (V9.6), clears the floating nav */}
+        {/* Mobile footer — version stamp (V9.7), clears the floating nav */}
         <footer className="mt-auto px-4 pb-[calc(max(env(safe-area-inset-bottom),0.5rem)+4.4rem)] text-center">
           <div className="flex items-center justify-center gap-2 text-[11px] text-muted-foreground/70">
             <OdysseyEmblem className="h-3.5 w-3.5" />

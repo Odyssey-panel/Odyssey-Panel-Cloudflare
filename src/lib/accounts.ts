@@ -157,6 +157,20 @@ function customFields(host: string, protocol: string, path: string): BuiltinFiel
 }
 
 /**
+ * Short, readable endpoint label for remarks: "odyssey-tunnel.abc.workers.dev"
+ * → "odyssey-tunnel", "ir1.example.com" → "ir1". Only used when the admin
+ * registered more than one endpoint, so configs from different locations
+ * are telling apart at a glance.
+ */
+function endpointTag(host: string): string {
+  const h = (host || '').trim().split('/')[0].split(':')[0]
+  const parts = h.split('.').filter(Boolean)
+  const label =
+    h.toLowerCase().endsWith('.workers.dev') || parts.length > 2 ? (parts[0] || h) : h
+  return label.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 20) || 'ep'
+}
+
+/**
  * Generate the full account set for one user. Throws a friendly Error when
  * there is no tunnel endpoint to point at (the admin must deploy/register
  * one first — the panel UI guides that flow).
@@ -191,10 +205,23 @@ export async function generateAccounts(opts: GenerateOptions): Promise<Generated
   const ports = [...portSet]
   const httpPorts = new Set<number>(CF_HTTP_PORTS)
 
+  // Shadowsocks is password-encrypted end-to-end by the tunnel worker with a
+  // SINGLE deployment-wide password (TUNNEL_SS_PASSWORD / PATH_SECRET) — a
+  // per-account random password can never decrypt. The account password must
+  // therefore BE the tunnel secret path (baked at deploy time).
+  let ssPassword: string | null = null
+  if (protocols.includes('shadowsocks')) {
+    const { getSettings } = await import('@/lib/settings')
+    const p = (await getSettings()).tunnelPath.replace(/^\/+|\/+$/g, '').trim()
+    ssPassword = p || null
+  }
+
   const count = Math.min(Math.max(1, opts.count ?? 1), 8)
   const out: GeneratedAccount[] = []
   // hard cap so a wild multi-select can't explode the table
   const CAP = 64
+  // duplicate remarks get a numbered suffix so every config stays unique
+  const seen = new Map<string, number>()
 
   outer: for (let li = 0; li < endpoints.length; li++) {
     const ep = endpoints[li]
@@ -220,15 +247,23 @@ export async function generateAccounts(opts: GenerateOptions): Promise<Generated
                 : (plain
                     ? { ...fieldsBase, port, tls: false }
                     : { ...fieldsBase, port }) as BuiltinFields
-            // Clean Zeus-style remark — tags appear only when they actually
-            // distinguish configs: "ali", "ali (v4)", "ali (2053) #2".
+            // Clean, informative remark — everything a user needs at a glance:
+            //   "Ali · VLESS"                     one endpoint, domain, TLS 443
+            //   "Ali · VLESS · TLS 2053 · v4"     alt TLS port resolved to IPv4
+            //   "Ali · VLESS · plain 80"          no-TLS ws variant (anti-throttle)
+            //   "Ali · Trojan · myrelay #2"       second endpoint, repeat #2
+            const protoTag = proto === 'shadowsocks' ? 'SS' : proto.toUpperCase()
             const tags: string[] = []
-            if (endpoints.length > 1) tags.push(`L${li + 1}`)
+            if (ports.length > 1 || port !== 443) {
+              tags.push(plain ? `plain ${port}` : port !== 443 ? `TLS ${port}` : '')
+            }
             if (variants.length > 1 && v.kind !== 'domain') tags.push(v.kind === 'ipv4' ? 'v4' : 'v6')
-            if (ports.length > 1 && port !== 443) tags.push(String(port))
-            const remark =
-              `${opts.name}${tags.length ? ` (${tags.join(' · ')})` : ''}${count > 1 ? ` #${i + 1}` : ''}`
-            const secret = generateSecret(proto)
+            if (endpoints.length > 1) tags.push(endpointTag(ep.host))
+            const base = `${opts.name} · ${protoTag}${tags.filter(Boolean).length ? ` · ${tags.filter(Boolean).join(' · ')}` : ''}`
+            const seenN = (seen.get(base) || 0) + 1
+            seen.set(base, seenN)
+            const remark = count > 1 || seenN > 1 ? `${base} #${seenN}` : base
+            const secret = proto === 'shadowsocks' && ssPassword ? ssPassword : generateSecret(proto)
             out.push(finalize(fields, proto, remark, secret, opts))
             if (out.length >= CAP) break outer
           }

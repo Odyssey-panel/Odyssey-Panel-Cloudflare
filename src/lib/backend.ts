@@ -109,6 +109,12 @@ export async function tunnelFields(): Promise<BuiltinFields | null> {
 /**
  * Protocol-aware tunnel fields: the tunnel dispatches beneath its secret
  * path — /<secret>/vless, /<secret>/trojan, /<secret>/ss (shadowsocks).
+ *
+ * SPEED: the path carries "?ed=2048" — the v2ray 0-RTT early-data hint. The
+ * client then sends the protocol header + first payload base64url-encoded in
+ * the sec-websocket-protocol header of the WS HANDSHAKE itself, saving one
+ * full round trip per connection. The tunnel (v3) decodes it when ?ed= is
+ * present; clients that don't support early data simply ignore the query.
  */
 export async function tunnelFieldFor(protocol = 'vless'): Promise<BuiltinFields | null> {
   const { getSettings } = await import('./settings')
@@ -128,7 +134,7 @@ export async function tunnelFieldFor(protocol = 'vless'): Promise<BuiltinFields 
       tls: true,
       sni: host,
       host,
-      path: sub ? `/${secretPath}/${sub}` : `/${secretPath}`,
+      path: sub ? `/${secretPath}/${sub}?ed=2048` : `/${secretPath}?ed=2048`,
     }
   } catch {
     return null

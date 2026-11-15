@@ -113,6 +113,9 @@ export async function POST(req: Request) {
     const bindings = [
       { type: 'plain_text', name: 'PATH_SECRET', text: tunnelPath },
       { type: 'plain_text', name: 'TUNNEL_PROXYIP', text: proxyIp },
+      // Shadowsocks keys are derived from this deployment-wide password — the
+      // panel issues SS accounts with exactly this value so links can decrypt.
+      { type: 'plain_text', name: 'TUNNEL_SS_PASSWORD', text: tunnelPath },
       ...(blockExtra ? [{ type: 'plain_text', name: 'TUNNEL_BLOCK_EXTRA', text: blockExtra }] : []),
     ]
     // Smart Placement keeps the tunnel near its users; unavailable on some
