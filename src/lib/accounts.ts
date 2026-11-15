@@ -38,7 +38,7 @@ export type GenerateOptions = {
   sni?: string | null
   /** Zeus-style ECH config list carried into the generated links */
   ech?: string | null
-  /** extra TLS ports to emit one account per port (subset of CF_TLS_PORTS) */
+  /** extra ports for one-account-per-port fan-out (TLS, plain-HTTP, or any custom 1-65535) */
   ports?: number[]
 }
 
@@ -204,7 +204,6 @@ export async function generateAccounts(opts: GenerateOptions): Promise<Generated
         ? opts.addressTypes
         : (['domain'] as Array<'domain' | 'ipv4' | 'ipv6'>),
     )
-    const locTag = endpoints.length > 1 ? `-L${li + 1}` : ''
     for (const proto of protocols) {
       for (let i = 0; i < count; i++) {
         for (const v of variants) {
@@ -221,9 +220,14 @@ export async function generateAccounts(opts: GenerateOptions): Promise<Generated
                 : (plain
                     ? { ...fieldsBase, port, tls: false }
                     : { ...fieldsBase, port }) as BuiltinFields
-            const suffix =
-              `${locTag}${variants.length > 1 ? `-${v.kind}` : ''}${ports.length > 1 ? `-P${port}` : ''}${count > 1 ? `-${i + 1}` : ''}`
-            const remark = `Odyssey-${opts.name}${suffix}`
+            // Clean Zeus-style remark — tags appear only when they actually
+            // distinguish configs: "ali", "ali (v4)", "ali (2053) #2".
+            const tags: string[] = []
+            if (endpoints.length > 1) tags.push(`L${li + 1}`)
+            if (variants.length > 1 && v.kind !== 'domain') tags.push(v.kind === 'ipv4' ? 'v4' : 'v6')
+            if (ports.length > 1 && port !== 443) tags.push(String(port))
+            const remark =
+              `${opts.name}${tags.length ? ` (${tags.join(' · ')})` : ''}${count > 1 ? ` #${i + 1}` : ''}`
             const secret = generateSecret(proto)
             out.push(finalize(fields, proto, remark, secret, opts))
             if (out.length >= CAP) break outer

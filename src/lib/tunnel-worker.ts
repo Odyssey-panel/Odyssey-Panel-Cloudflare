@@ -12,13 +12,15 @@
  *               "mode=websocket" pass-through; AEAD per the public
  *               shadowsocks.org specification)
  *
- * Routing (v2.2 — the "smart dial"):
+ * Routing (v2.3 — the "smart dial" + DNS):
  *   Every target is dialed DIRECTLY from the edge first — one hop, the
  *   fastest possible path. Only when the direct socket cannot open (the
  *   classic case: the target site is itself behind Cloudflare, and Workers
  *   are not allowed to connect to Cloudflare's own network) the connection
  *   is retried through the configured proxy-IP relay pool, preserving the
  *   target port and rotating through the pool entries.
+ *   VLESS command 2 (UDP) is answered for DNS (port 53) via DoH — clients
+ *   that resolve through the proxy keep working; other UDP ports close.
  *
  * Content policy (optional, baked at deploy time):
  *   TUNNEL_BLOCK = "ads", "porn" or "ads,porn" → target domains are checked
@@ -35,7 +37,7 @@
  * Written from scratch for Odyssey against the public protocol specs.
  */
 
-const VERSION = 'odyssey-tunnel/2.2.0'
+const VERSION = 'odyssey-tunnel/2.3.0'
 
 const PROTO_VLESS = 'vless'
 const PROTO_TROJAN = 'trojan'
@@ -110,13 +112,14 @@ export function tunnelWorkerSource(proxyIp = '', blockFlags = ''): string {
     "  if (!/^[a-zA-Z0-9.:-]+:\\d{1,5}$/.test(target)) return json({ ok: false, error: 'target must be host:port' }, 400, cors);",
     "  const i = target.lastIndexOf(':');",
     "  const host = target.slice(0, i), port = Number(target.slice(i + 1));",
+    "  const tp = host.includes(':') ? hostPort(host, port) : target;",
     "  const start = Date.now();",
     "  try {",
     "    let sock;",
     "    if (useRelay) {",
     "      sock = await dialRelay(env, host, port);",
     "    } else {",
-    "      sock = connect(target, { allowUntrusted: false });",
+    "      sock = connect(tp, { allowUntrusted: false });",
     "      await withTimeout(sock.opened, 5000);",
     "    }",
     "    const ms = Date.now() - start;",
@@ -226,7 +229,7 @@ export function tunnelWorkerSource(proxyIp = '', blockFlags = ''): string {
     "    for (const p of [...new Set([port, relayPort || 0, 443].filter(Boolean))]) {",
     "      let s = null;",
     "      try {",
-    "        s = connect(relayHost + ':' + p, { allowUntrusted: false });",
+    "        s = connect(hostPort(relayHost, p), { allowUntrusted: false });",
     "        await withTimeout(s.opened, 4000);",
     "        return s;",
     "      } catch (_) { try { if (s) s.close(); } catch (_) {} }",
@@ -242,7 +245,7 @@ export function tunnelWorkerSource(proxyIp = '', blockFlags = ''): string {
     "  if (!isCfHost(host)) {",
     "    let s = null;",
     "    try {",
-    "      s = connect(host + ':' + port, { allowUntrusted: false });",
+    "      s = connect(hostPort(host, port), { allowUntrusted: false });",
     "      await withTimeout(s.opened, 4000);",
     "      return s;",
     "    } catch (_) { try { if (s) s.close(); } catch (_) {} }",
@@ -278,9 +281,12 @@ export function tunnelWorkerSource(proxyIp = '', blockFlags = ''): string {
     "  const checkBlock = BLOCKED(env);",
     "  let writer = null;",
     "  let headerSeen = false;",
+    "  let udpOn = false;",
+    "  let udpAcc = null;",
+    "  let preBuf = null;",
     "  const earlyBytes = early ? await toBytes(early) : null;",
     "  // Serialize message handling: the header message may still be dialing",
-    "  // when the next message (e.g. the TLS ClientHello) arrives — without a",
+    "  // when the next message (e.g. the TLS ClientHello) arrives \u2014 without a",
     "  // queue that second message would be mis-parsed as a new header.",
     "  let q = Promise.resolve();",
     "  const handle = async (data) => {",
@@ -288,19 +294,27 @@ export function tunnelWorkerSource(proxyIp = '', blockFlags = ''): string {
     "        if (writer && data.byteLength) { if (globalThis.__DBG) console.log('vless: ws->tcp', data.byteLength); await writer.write(data); }",
     "        return;",
     "      }",
+    "      if (udpOn) { await udpDns(data); return; }",
     "      let msg = data;",
     "      if (earlyBytes && earlyBytes.byteLength && data.byteLength < 26) {",
     "        const merged = new Uint8Array(earlyBytes.byteLength + data.byteLength);",
     "        merged.set(earlyBytes, 0); merged.set(data, earlyBytes.byteLength);",
     "        msg = merged;",
     "      }",
-    "      if (msg.byteLength < 26) return;",
+    "      if (preBuf && preBuf.byteLength) {",
+    "        const merged = new Uint8Array(preBuf.byteLength + msg.byteLength);",
+    "        merged.set(preBuf, 0); merged.set(msg, preBuf.byteLength);",
+    "        msg = merged;",
+    "      }",
+    "      // a VLESS request header is at least 26 bytes (ipv4 target) \u2014 anything",
+    "      // shorter is a fragment split across WS messages; keep and wait",
+    "      if (msg.byteLength < 26) { preBuf = msg; return; }",
     "      const uid = [...msg.slice(1, 17)].map(b => b.toString(16).padStart(2, '0')).join('');",
     "      if (!allowed(uid, env)) return safeClose(ws);",
     "      const addonsLen = msg[17];",
     "      const opt = 18 + addonsLen;",
     "      const cmd = msg[opt];",
-    "      // VLESS wire order: cmd(1) port(2 BE) atype(1) addr payload —",
+    "      // VLESS wire order: cmd(1) port(2 BE) atype(1) addr payload \u2014",
     "      // the port comes BEFORE the address, so the address parser here",
     "      // must not consume a second port (trojan/ss layouts differ).",
     "      const port = (msg[opt + 1] << 8) | msg[opt + 2];",
@@ -312,6 +326,7 @@ export function tunnelWorkerSource(proxyIp = '', blockFlags = ''): string {
     "        rest = msg.slice(aOff + 4);",
     "      } else if (atype === 2 && msg.byteLength > aOff + 1) {",
     "        const alen = msg[aOff];",
+    "        if (msg.byteLength < aOff + 1 + alen) { preBuf = msg; return; }",
     "        host = new TextDecoder().decode(msg.slice(aOff + 1, aOff + 1 + alen));",
     "        rest = msg.slice(aOff + 1 + alen);",
     "      } else if (atype === 3 && msg.byteLength >= aOff + 16) {",
@@ -321,15 +336,49 @@ export function tunnelWorkerSource(proxyIp = '', blockFlags = ''): string {
     "        rest = msg.slice(aOff + 16);",
     "      }",
     "      const t = host ? { host, port, rest: rest || new Uint8Array(0) } : null;",
-    "      if (!t || cmd !== 1) return; // TCP connect commands only",
+    "      // cmd 1 = TCP, cmd 2 = UDP (DNS answered via DoH) \u2014 anything else dies",
+    "      if (!t || (cmd !== 1 && cmd !== 2)) return safeClose(ws);",
     "      if (checkBlock && checkBlock(t.host)) return safeClose(ws);",
     "      ws.send(new Uint8Array([msg[0], 0]).buffer); // vless ack",
+    "      if (cmd === 2) {",
+    "        udpOn = true;",
+    "        udpAcc = t.rest; // may already hold the first length-prefixed datagram",
+    "        await udpDns(null);",
+    "        return;",
+    "      }",
     "      const sock = await dial(env, t.host, t.port);",
     "      if (globalThis.__DBG) console.log('vless: dialed', t.host, t.port);",
     "      writer = sock.writable.getWriter();",
     "      if (t.rest.byteLength) await writer.write(t.rest);",
     "      headerSeen = true;",
     "      pumpTcp(ws, sock);",
+    "  };",
+    "  // VLESS UDP datagram pump: client frames are [len(2 BE)][datagram].",
+    "  // DNS (port 53) queries are relayed over DoH and framed back the same way;",
+    "  // non-DNS UDP is not possible on Workers, so the stream is closed.",
+    "  const udpDns = async (chunk) => {",
+    "      if (chunk && chunk.byteLength) {",
+    "        const merged = new Uint8Array((udpAcc ? udpAcc.byteLength : 0) + chunk.byteLength);",
+    "        if (udpAcc) merged.set(udpAcc, 0);",
+    "        merged.set(chunk, udpAcc ? udpAcc.byteLength : 0);",
+    "        udpAcc = merged;",
+    "      }",
+    "      while (udpAcc && udpAcc.byteLength >= 2) {",
+    "        const l = (udpAcc[0] << 8) | udpAcc[1];",
+    "        if (l < 12 || l > 4096) return safeClose(ws); // not a sane DNS message",
+    "        if (udpAcc.byteLength < 2 + l) return; // wait for the rest of the datagram",
+    "        const qd = udpAcc.slice(2, 2 + l);",
+    "        udpAcc = udpAcc.slice(2 + l);",
+    "        try {",
+    "          const res = await fetch('https://cloudflare-dns.com/dns-query', { method: 'POST', headers: { 'content-type': 'application/dns-message' }, body: qd });",
+    "          if (!res.ok) return safeClose(ws);",
+    "          const a = new Uint8Array(await res.arrayBuffer());",
+    "          const fr = new Uint8Array(2 + a.byteLength);",
+    "          fr[0] = (a.byteLength >> 8) & 255; fr[1] = a.byteLength & 255;",
+    "          fr.set(a, 2);",
+    "          ws.send(fr.buffer);",
+    "        } catch (e) { if (globalThis.__DBG) console.log('vless: doh fail', String(e)); return safeClose(ws); }",
+    "      }",
     "  };",
     "  ws.addEventListener('message', (event) => {",
     "    q = q",
@@ -338,7 +387,7 @@ export function tunnelWorkerSource(proxyIp = '', blockFlags = ''): string {
     "      .catch((e) => { if (globalThis.__DBG) console.log('vless err', String(e)); safeClose(ws); });",
     "  });",
     "}",
-    '',
+
     "// ── Trojan over WebSocket (sha224(password) hex + CRLF + addr + CRLF) ─",
     '',
     "async function serveTrojan(ws, _early, env) {",

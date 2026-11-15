@@ -620,6 +620,8 @@ const FA: Record<string, string> = {
   'Port already selected': 'این پورت قبلاً انتخاب شده است',
   'Any port number — for custom backends or self-hosted nodes that answer on it.':
     'هر عدد پورت — برای بک‌اندهای دلخواه یا نودهای خودت که روی آن پورت جواب می‌دهند',
+  'No ProxyIP relay configured — sites behind Cloudflare will not open. Set one in Settings → Edge tunnel, then redeploy the tunnel.':
+    'هیچ ProxyIP ریله‌ای تنظیم نشده — سایت‌های پشت Cloudflare باز نمی‌شوند. در تنظیمات ← تونل edge یک ریله بگذار و تونل را دوباره دیپلوی کن',
   'ECH (Encrypted ClientHello)': 'ECH (ClientHello رمزنگاری‌شده)',
   'ON — SNI stays hidden from DPI': 'روشن — SNI از DPI پنهان می‌ماند',
   'OFF — plain ClientHello': 'خاموش — ClientHello ساده',

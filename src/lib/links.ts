@@ -159,8 +159,10 @@ export function buildShareLink(p: ProxyLike): string {
     if (p.host) q.push(`host=${encodeURIComponent(p.host)}`)
     if (transport === 'ws' && p.path) q.push(`path=${encodeURIComponent(p.path)}`)
     if (transport === 'grpc' && p.path) q.push(`serviceName=${encodeURIComponent(p.path)}`)
-    if (p.fp || p.ech) q.push(`fp=${encodeURIComponent(p.fp || DEFAULT_FINGERPRINT)}`)
-    if (p.ech) q.push(`ech=${encodeURIComponent(p.ech)}`)
+    // uTLS fingerprint / ECH only exist on a TLS handshake — sending them with
+    // security=none makes some clients reject the link outright
+    if (p.tls && (p.fp || p.ech)) q.push(`fp=${encodeURIComponent(p.fp || DEFAULT_FINGERPRINT)}`)
+    if (p.tls && p.ech) q.push(`ech=${encodeURIComponent(p.ech)}`)
     const frag = fragmentParam(p)
     if (frag) q.push(frag)
     return `vless://${p.secret}@${host}:${p.port}?${q.join('&')}#${remark}`
@@ -180,9 +182,9 @@ export function buildShareLink(p: ProxyLike): string {
       host: p.host || '',
       path: transport === 'ws' ? p.path || '' : '',
       tls: p.tls ? 'tls' : '',
-      sni: p.sni || '',
-      fp: p.fp || DEFAULT_FINGERPRINT,
-      ech: p.ech || '',
+      sni: p.tls ? p.sni || '' : '',
+      fp: p.tls ? p.fp || DEFAULT_FINGERPRINT : '',
+      ech: p.tls ? p.ech || '' : '',
     }
     return `vmess://${b64(JSON.stringify(obj))}`
   }
@@ -192,8 +194,8 @@ export function buildShareLink(p: ProxyLike): string {
     if (p.host) q.push(`host=${encodeURIComponent(p.host)}`)
     q.push(`type=${transport}`)
     if (transport === 'ws' && p.path) q.push(`path=${encodeURIComponent(p.path)}`)
-    if (p.fp || p.ech) q.push(`fp=${encodeURIComponent(p.fp || DEFAULT_FINGERPRINT)}`)
-    if (p.ech) q.push(`ech=${encodeURIComponent(p.ech)}`)
+    if (p.tls && (p.fp || p.ech)) q.push(`fp=${encodeURIComponent(p.fp || DEFAULT_FINGERPRINT)}`)
+    if (p.tls && p.ech) q.push(`ech=${encodeURIComponent(p.ech)}`)
     const frag = fragmentParam(p)
     if (frag) q.push(frag)
     return `trojan://${encodeURIComponent(p.secret)}@${host}:${p.port}?${q.join('&')}#${remark}`

@@ -2,7 +2,6 @@ import { db } from '@/lib/db'
 import { requireAuth, jsonSafe } from '@/lib/auth'
 import { workerCodeFor, blockFlagsFor } from '@/lib/worker-kit'
 import { setSettings, getSetting } from '@/lib/settings'
-import { createHash } from 'node:crypto'
 
 export const runtime = 'nodejs'
 
@@ -95,21 +94,11 @@ export async function POST(req: Request) {
       return Response.json({ error: 'Could not resolve the workers.dev subdomain' }, { status: 502 })
     }
 
-    // 3) Tunnel bindings: credential allowlist + secret path + optional relay
-    //    vless → uuid list; trojan → sha224(password) hex; ss enforces its own
-    //    password via AEAD (no list needed)
-    const credRows = await db.proxy.findMany({
-      where: { protocol: { in: ['vless', 'trojan'] } },
-      select: { protocol: true, secret: true },
-      distinct: ['secret'],
-    })
-    const creds = new Set<string>()
-    for (const r of credRows) {
-      const s = r.secret.trim()
-      if (!s) continue
-      if (r.protocol === 'vless') creds.add(s.toLowerCase())
-      else creds.add(createHash('sha224').update(s).digest('hex'))
-    }
+    // 3) Tunnel bindings: secret path + optional relay.
+    //    NO TUNNEL_ALLOW binding — a baked UUID allowlist silently killed every
+    //    config created AFTER a deploy (ping OK, zero traffic — the worst kind
+    //    of failure). The secret path gates access; the worker still honours a
+    //    TUNNEL_ALLOW var set manually in the CF dashboard for strict lockdown.
 
     let tunnelPath = (await getSetting('tunnelPath')).trim().replace(/^\/+|\/+$/g, '')
     if (!tunnelPath) {
@@ -123,7 +112,6 @@ export async function POST(req: Request) {
     const code = workerCodeFor(proxyIp, blockFlagsFor(blockAds, blockPorn))
     const bindings = [
       { type: 'plain_text', name: 'PATH_SECRET', text: tunnelPath },
-      { type: 'plain_text', name: 'TUNNEL_ALLOW', text: Array.from(creds).join(',') },
       { type: 'plain_text', name: 'TUNNEL_PROXYIP', text: proxyIp },
       ...(blockExtra ? [{ type: 'plain_text', name: 'TUNNEL_BLOCK_EXTRA', text: blockExtra }] : []),
     ]

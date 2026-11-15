@@ -1122,6 +1122,13 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
           <TabsContent value="server" className="mt-4 space-y-3.5">
             {withAccount ? (
               <div className="space-y-3.5">
+                {/* Configs die on Cloudflare-fronted sites with no ProxyIP
+                    relay — warn before the user creates dead configs */}
+                {backendMode === 'builtin' && !(settingsData?.settings?.tunnelProxyIp || '').trim() && (
+                  <p className="rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-xs leading-relaxed text-foreground">
+                    {t('No ProxyIP relay configured — sites behind Cloudflare will not open. Set one in Settings → Edge tunnel, then redeploy the tunnel.')}
+                  </p>
+                )}
                 {/* Where the config runs — always visible so the mode can be
                     switched back and forth (was locked once "own" was chosen) */}
                 {usePicker && (
@@ -1997,7 +2004,7 @@ function AddAccountButton({ clientId, onAdded, defaultRemark }: { clientId: stri
   const [host, setHost] = useState('')
   const [tls, setTls] = useState(true)
   const [fragment, setFragment] = useState('')
-  const [remark, setRemark] = useState(`Odyssey-${defaultRemark}`)
+  const [remark, setRemark] = useState(defaultRemark)
   const [busy, setBusy] = useState(false)
   const { t } = useLang()
 
