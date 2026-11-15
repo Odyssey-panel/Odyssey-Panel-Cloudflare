@@ -41,6 +41,9 @@ import { TelegramProxyView } from './views/telegram-proxy'
 
 export type ViewKey = 'dashboard' | 'clients' | 'antifilter' | 'nodes' | 'scanner' | 'telegram' | 'settings'
 
+/** Version badge shown at the bottom of the panel (mobile + desktop footer). */
+export const PANEL_VERSION = 'V9.6'
+
 export const NAV_ITEMS: {
   key: ViewKey
   label: string
@@ -175,7 +178,11 @@ export function Panel({ initialView }: { initialView?: ViewKey }) {
   const content = (
     <>
       {[...mountedViews].map((key) => (
-        <div key={key} className={view === key ? 'block' : 'hidden'} aria-hidden={view !== key}>
+        <div
+          key={key}
+          className={view === key ? 'block odyssey-view-enter' : 'hidden'}
+          aria-hidden={view !== key}
+        >
           {renderView(key)}
         </div>
       ))}
@@ -188,8 +195,8 @@ export function Panel({ initialView }: { initialView?: ViewKey }) {
   if (isMobile) {
     return (
       <div className="flex min-h-screen flex-col">
-        {/* Mobile top bar */}
-        <header className="glass sticky top-0 z-40 flex items-center justify-between gap-2 border-b bg-background/70 px-4 py-3">
+        {/* Mobile top bar — floating frosted-glass pill (visual addendum v17–v19) */}
+        <header className="odyssey-mobile-header glass sticky top-2 z-40 mx-3 flex items-center justify-between gap-2 rounded-[1.65rem] px-4 py-3">
           <Logo compact />
           <div className="flex items-center gap-1.5">
             <LanguageSwitcher />
@@ -219,13 +226,27 @@ export function Panel({ initialView }: { initialView?: ViewKey }) {
         </header>
 
         {/* Content with room for the bottom bar */}
-        <main className="min-w-0 flex-1 px-4 pb-28 pt-5">
+        <main className="min-w-0 flex-1 px-4 pb-6 pt-5">
           {content}
         </main>
 
-        {/* Mobile bottom navigation */}
+        {/* Mobile footer — version stamp (V9.6), clears the floating nav */}
+        <footer className="mt-auto px-4 pb-[calc(max(env(safe-area-inset-bottom),0.5rem)+4.4rem)] text-center">
+          <div className="flex items-center justify-center gap-2 text-[11px] text-muted-foreground/70">
+            <OdysseyEmblem className="h-3.5 w-3.5" />
+            <span dir="ltr" className="font-display font-semibold uppercase tracking-[0.25em]">Odyssey</span>
+            <span
+              dir="ltr"
+              className="rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-mono text-[10px] leading-none tracking-[0.18em] text-muted-foreground"
+            >
+              {PANEL_VERSION}
+            </span>
+          </div>
+        </footer>
+
+        {/* Mobile bottom navigation — floating liquid-glass pill (visual addendum v17–v19) */}
         <nav
-          className="glass fixed inset-x-0 bottom-0 z-40 border-t bg-background/80 pb-[max(env(safe-area-inset-bottom),0.4rem)] pt-1.5 backdrop-blur-xl"
+          className="liquid-glass-nav glass fixed inset-x-2 bottom-2 z-40 rounded-[1.65rem] px-1.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1.5 backdrop-blur-xl"
           aria-label="Mobile navigation"
         >
           <div className="mx-auto grid max-w-lg grid-cols-7">
@@ -242,7 +263,7 @@ export function Panel({ initialView }: { initialView?: ViewKey }) {
                     className={cn(
                       'relative flex h-8 w-12 items-center justify-center rounded-full transition-all duration-200',
                       active
-                        ? 'bg-gradient-to-r from-odyssey-cyan/20 to-odyssey-navy/10 text-odyssey-deep shadow-[inset_0_0_0_1px_oklch(0.72_0.1_214/0.35),0_4px_16px_-8px_oklch(0.55_0.09_220/0.5)] dark:text-odyssey-bright'
+                        ? 'bg-gradient-to-r from-odyssey-cyan/25 to-odyssey-navy/10 text-odyssey-deep ring-[1.5px] ring-inset ring-odyssey-cyan/45 shadow-[0_4px_16px_-8px_oklch(0.55_0.09_220/0.5)] dark:text-odyssey-bright'
                         : 'text-muted-foreground/75 group-active:scale-95'
                     )}
                   >
@@ -269,8 +290,8 @@ export function Panel({ initialView }: { initialView?: ViewKey }) {
   return (
     <div className="flex min-h-screen flex-col">
       <div className="flex flex-1">
-        {/* Sidebar */}
-        <aside className="glass sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-e bg-sidebar md:flex">
+        {/* Sidebar — floating rounded card, detached from the edge (visual addendum v17–v19) */}
+        <aside className="glass sticky top-3 my-3 ms-3 hidden h-[calc(100vh-1.5rem)] w-64 shrink-0 flex-col rounded-[1.65rem] border bg-sidebar md:flex">
           <div className="px-5 pb-5 pt-6">
             <Logo />
           </div>
@@ -352,7 +373,7 @@ export function Panel({ initialView }: { initialView?: ViewKey }) {
               dir="ltr"
               className="ms-1 rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-mono text-[10px] leading-none tracking-[0.18em] text-muted-foreground"
             >
-              V15.2
+              {PANEL_VERSION}
             </span>
           </span>
           <span className="hidden sm:inline">{t('multi-protocol · anti-filter · self-hosted')}</span>

@@ -933,7 +933,8 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                               type="button"
                               title={isp.note}
                               onClick={() => setFragment(ispFragment(isp))}
-                              className="rounded-full border bg-white/[0.03] px-2 py-0.5 text-[11px] transition-all hover:-translate-y-0.5 hover:border-odyssey-cyan/40 hover:bg-odyssey-cyan/10 dark:bg-white/[0.04]"
+                              aria-pressed={ispFragment(isp) === fragment}
+                              className="fragment-preset rounded-full border bg-white/[0.03] px-2 py-0.5 text-[11px] transition-all hover:-translate-y-0.5 hover:border-odyssey-cyan/40 hover:bg-odyssey-cyan/10 dark:bg-white/[0.04]"
                             >
                               {isp.name}
                             </button>
@@ -1117,7 +1118,8 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                         key={p}
                         type="button"
                         onClick={() => setProtocol(p)}
-                        className={`rounded-lg border px-2.5 py-1.5 font-mono text-xs font-medium uppercase transition-colors ${
+                        aria-pressed={protocol === p}
+                        className={`protocol-chip rounded-lg border px-2.5 py-1.5 font-mono text-xs font-medium uppercase transition-colors ${
                           protocol === p
                             ? 'border-cyan-400/40 bg-cyan-400/10 text-foreground'
                             : 'border-border/60 text-muted-foreground hover:bg-white/[0.04]'
@@ -1769,7 +1771,9 @@ function AddAccountButton({ clientId, onAdded, defaultRemark }: { clientId: stri
                       key={isp.id}
                       type="button"
                       onClick={() => applyIsp(isp)}
-                      className="rounded-full border bg-white/[0.03] px-2 py-0.5 text-[11px] transition-all hover:-translate-y-0.5 hover:border-odyssey-cyan/40 hover:bg-odyssey-cyan/10 dark:bg-white/[0.04]"
+                      aria-pressed={ispFragment(isp) === fragment}
+                      title={isp.note}
+                      className="fragment-preset rounded-full border bg-white/[0.03] px-2 py-0.5 text-[11px] transition-all hover:-translate-y-0.5 hover:border-odyssey-cyan/40 hover:bg-odyssey-cyan/10 dark:bg-white/[0.04]"
                     >
                       {isp.name}
                     </button>
