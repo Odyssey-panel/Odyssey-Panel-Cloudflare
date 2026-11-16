@@ -11,6 +11,9 @@ const uuid = process.argv[3]
 const targetHost = process.argv[4] || 'example.com'
 const targetPort = Number(process.argv[5] || 80)
 const request = process.argv[6] || `GET / HTTP/1.1\r\nHost: ${targetHost}\r\nUser-Agent: odyssey-e2e\r\nConnection: close\r\n\r\n`
+// optional argv[7]: SNI/Host override — dial the URL host directly (clean IP)
+// while presenting sniHost for TLS SNI and the ws Host header (Zeus-style)
+const sniHost = process.argv[7] || ''
 
 function uuidBytes(id) {
   const hex = id.replace(/-/g, '')
@@ -40,7 +43,12 @@ function buildVlessRequest(uuidStr) {
   return all
 }
 
-const ws = new WebSocket(url, { perMessageDeflate: false })
+const wsOpts = { perMessageDeflate: false }
+if (sniHost) {
+  wsOpts.headers = { host: sniHost }
+  wsOpts.servername = sniHost
+}
+const ws = new WebSocket(url, wsOpts)
 const started = Date.now()
 let done = false
 

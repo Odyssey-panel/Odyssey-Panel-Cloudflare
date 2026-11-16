@@ -39,6 +39,19 @@ export async function GET(req: Request, { params }: Params) {
   // ── fast path: pre-built payload from the edge cache ──────────────────────
   const cached = await readSubscriptionCache(token, format)
   if (cached) {
+    // STALENESS GUARD: KV edge-caching (cacheTtl) can serve an old payload
+    // indefinitely at a busy PoP — each read refreshes the edge entry, and
+    // regeneration used to run only on the slow path (never reached). So on
+    // the fast path we re-generate in the background whenever the cached
+    // payload is older than a minute; the next refresh picks it up.
+    if (Date.now() - cached.updatedAt > 60_000) {
+      try {
+        const ctx = (getCloudflareContext() as { ctx?: { waitUntil?: (p: Promise<void>) => void } } | undefined)
+        ctx?.ctx?.waitUntil?.(regenerateSubscriptionQuietly(clientIdByToken(token)))
+      } catch {
+        // best-effort
+      }
+    }
     return new Response(cached.body, {
       headers: subHeaders('Odyssey', cached.userinfo),
     })
@@ -125,12 +138,23 @@ export async function GET(req: Request, { params }: Params) {
 }
 
 /** Cache warming helper that never breaks the request. */
-async function regenerateSubscriptionQuietly(clientId: string): Promise<void> {
+async function regenerateSubscriptionQuietly(clientId: string | null): Promise<void> {
+  if (!clientId) return
   try {
     const { regenerateSubscription } = await import('@/lib/subcache')
     await regenerateSubscription(clientId)
   } catch {
     // ignore
+  }
+}
+
+/** Resolve a client id from a subscription token (staleness guard helper). */
+async function clientIdByToken(token: string): Promise<string | null> {
+  try {
+    const c = await db.client.findUnique({ where: { subToken: token }, select: { id: true } })
+    return c?.id ?? null
+  } catch {
+    return null
   }
 }
 
@@ -148,8 +172,9 @@ function userinfoOf(client: {
 function subHeaders(filename: string, userinfo: string, contentType = 'text/plain; charset=utf-8') {
   return {
     'content-type': contentType,
-    // edge + browser cache: instant refreshes, still fresh enough for clients
-    'cache-control': 'public, max-age=30, stale-while-revalidate=300',
+    // edge + browser cache: short windows only — subscription payloads change
+    // on every refresh/heal and must never go stale for minutes
+    'cache-control': 'public, max-age=10, stale-while-revalidate=60',
     'profile-update-interval': '6',
     'subscription-userinfo': userinfo,
     'content-disposition': `attachment; filename="${filename}"`,

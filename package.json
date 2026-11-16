@@ -1,6 +1,6 @@
 {
   "name": "odyssey-panel-cloudflare",
-  "version": "9.6.0",
+  "version": "9.8.0",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",

@@ -138,12 +138,17 @@ export async function readSubscriptionCache(
     const store = kv()
     // SPEED: cacheTtl pins the payload in the PoP-local KV edge cache —
     // repeat fetches from the same region are served from the edge without
-    // the central KV hop (the difference between ~1-5ms and ~15-40ms).
+    // the central KV hop. Kept short (15s): a longer TTL lets each read
+    // refresh a STALE edge entry forever (KV deletes propagate lazily), so
+    // an old payload could loop indefinitely at a busy PoP.
     const raw: string | null = store
-      ? await store.get(`sub:${subToken}`, 'text', { cacheTtl: 60 })
-      : (memory().get(subToken) as CachedSub | undefined
-          ? JSON.stringify(memory().get(subToken))
-          : null)
+      ? await store.get(`sub:${subToken}`, 'text', { cacheTtl: 15 })
+      : (() => {
+          // memory fallback (dev / context-less runtimes): a short TTL keeps
+          // an in-process cache from serving stale configs forever
+          const m = memory().get(subToken) as CachedSub | undefined
+          return m && Date.now() - m.updatedAt < 10_000 ? JSON.stringify(m) : null
+        })()
     if (!raw) return null
     const payload = JSON.parse(raw) as CachedSub
     const body = payload.formats[format]

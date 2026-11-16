@@ -79,7 +79,6 @@ export default async function SubPage({ params }: Props) {
         <input
           readOnly
           value={subUrl}
-          onFocus={(e) => e.currentTarget.select()}
           className="mt-3 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 font-mono text-xs text-emerald-300 outline-none"
           dir="ltr"
         />
