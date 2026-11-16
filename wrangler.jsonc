@@ -18,18 +18,18 @@
     {
       "binding": "DB",
       "database_name": "odyssey-db",
-      // Real database created on the Odyssey-panel account (region APAC).
-      "database_id": "51ea2034-7d7d-47a9-aaeb-26efa7441f88",
-            "migrations_dir": "migrations"
+      // Fresh D1 on the current account (recreated after the old account was banned).
+      "database_id": "071049ed-d446-4a73-82d6-bdbbb4501d35",
+      "migrations_dir": "migrations"
     }
   ],
   "kv_namespaces": [
-    { "binding": "KV", "id": "bd7f17c9432043d1b585dc4889e74a51" },
-    { "binding": "NEXT_INC_CACHE_KV", "id": "77b61c67330e46f5abcd12d16f86dcdd" }
+    { "binding": "KV", "id": "1444b6375d9844248d3481fffc8bed46" },
+    { "binding": "NEXT_INC_CACHE_KV", "id": "25ad2c4c7e1e4e96b03414e4e66d60b7" }
   ],
-  // SPEED: Smart Placement — Cloudflare automatically runs the worker close
-  // to its data (D1 is in APAC), so each request pays the long hop once
-  // instead of paying it for every sequential D1 query.
+  // SPEED: Smart Placement — Cloudflare runs the worker close to its data
+  // (D1), so each request pays the long hop once instead of paying it for
+  // every sequential D1 query.
   "placement": { "mode": "smart" },
   "observability": {
     "enabled": true

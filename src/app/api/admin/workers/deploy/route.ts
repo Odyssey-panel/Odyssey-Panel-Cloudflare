@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { requireAuth, jsonSafe } from '@/lib/auth'
 import { workerCodeFor, blockFlagsFor } from '@/lib/worker-kit'
 import { setSettings, getSetting } from '@/lib/settings'
+import { createHash } from 'node:crypto'
 
 export const runtime = 'nodejs'
 
@@ -94,11 +95,21 @@ export async function POST(req: Request) {
       return Response.json({ error: 'Could not resolve the workers.dev subdomain' }, { status: 502 })
     }
 
-    // 3) Tunnel bindings: secret path + optional relay.
-    //    NO TUNNEL_ALLOW binding — a baked UUID allowlist silently killed every
-    //    config created AFTER a deploy (ping OK, zero traffic — the worst kind
-    //    of failure). The secret path gates access; the worker still honours a
-    //    TUNNEL_ALLOW var set manually in the CF dashboard for strict lockdown.
+    // 3) Tunnel bindings: credential allowlist + secret path + optional relay
+    //    vless → uuid list; trojan → sha224(password) hex; ss enforces its own
+    //    password via AEAD (no list needed)
+    const credRows = await db.proxy.findMany({
+      where: { protocol: { in: ['vless', 'trojan'] } },
+      select: { protocol: true, secret: true },
+      distinct: ['secret'],
+    })
+    const creds = new Set<string>()
+    for (const r of credRows) {
+      const s = r.secret.trim()
+      if (!s) continue
+      if (r.protocol === 'vless') creds.add(s.toLowerCase())
+      else creds.add(createHash('sha224').update(s).digest('hex'))
+    }
 
     let tunnelPath = (await getSetting('tunnelPath')).trim().replace(/^\/+|\/+$/g, '')
     if (!tunnelPath) {
@@ -112,10 +123,8 @@ export async function POST(req: Request) {
     const code = workerCodeFor(proxyIp, blockFlagsFor(blockAds, blockPorn))
     const bindings = [
       { type: 'plain_text', name: 'PATH_SECRET', text: tunnelPath },
+      { type: 'plain_text', name: 'TUNNEL_ALLOW', text: Array.from(creds).join(',') },
       { type: 'plain_text', name: 'TUNNEL_PROXYIP', text: proxyIp },
-      // Shadowsocks keys are derived from this deployment-wide password — the
-      // panel issues SS accounts with exactly this value so links can decrypt.
-      { type: 'plain_text', name: 'TUNNEL_SS_PASSWORD', text: tunnelPath },
       ...(blockExtra ? [{ type: 'plain_text', name: 'TUNNEL_BLOCK_EXTRA', text: blockExtra }] : []),
     ]
     // Smart Placement keeps the tunnel near its users; unavailable on some
@@ -148,12 +157,21 @@ export async function POST(req: Request) {
       await upload(false)
     }
 
-    // 4) Enable the workers.dev route for this script
-    await cfFetch(`/accounts/${accountId}/workers/scripts/${name}/subdomains`, apiToken, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ enabled: true }),
-    })
+    // 4) Enable the workers.dev route for this script — the plural endpoint
+    //    answers 405 on some accounts/tokens; the singular one is canonical.
+    try {
+      await cfFetch(`/accounts/${accountId}/workers/scripts/${name}/subdomains`, apiToken, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled: true }),
+      })
+    } catch {
+      await cfFetch(`/accounts/${accountId}/workers/scripts/${name}/subdomain`, apiToken, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled: true }),
+      })
+    }
 
     // 5) Register the URL in the panel (idempotent per URL)
     const url = `https://${name}.${subdomain}.workers.dev`
