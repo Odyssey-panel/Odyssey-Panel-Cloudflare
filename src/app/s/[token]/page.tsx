@@ -61,7 +61,17 @@ export default async function SubPage({ params }: Props) {
     <Shell title={`Odyssey · ${client.name}`}>
       <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
         <div className="text-sm font-semibold text-white/90">{client.name}</div>
-        <p className="mt-1 text-xs leading-relaxed text-white/55">
+        <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-white/60">
+          <span>ترافیک مصرفی</span>
+          <span className="text-left text-white/85" dir="ltr">
+            {fmtGb(client.usedBytes)}{Number(client.limitBytes) > 0 ? ` / ${fmtGb(client.limitBytes)}` : ' (نامحدود)'}
+          </span>
+          <span>تاریخ انقضا</span>
+          <span className="text-left text-white/85" dir="ltr">
+            {client.expiresAt ? client.expiresAt.toISOString().slice(0, 10) : 'unlimited'}
+          </span>
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-white/55">
           لینک زیر را در برنامه (v2rayNG / Hiddify / Streisand) اضافه کنید — هر بار آپدیت ساب، پروتکل‌های قطع یا ضعیف خودکار جایگزین می‌شوند.
           <br />
           <span className="text-white/40">Add this link to your VPN app — dead protocols are replaced automatically on every refresh.</span>
@@ -77,6 +87,12 @@ export default async function SubPage({ params }: Props) {
       <SubProbe token={token} items={items} />
     </Shell>
   )
+}
+
+function fmtGb(bytes: bigint): string {
+  const gb = Number(bytes) / 1024 ** 3
+  if (gb >= 1) return `${gb.toFixed(1)} GB`
+  return `${(Number(bytes) / 1024 ** 2).toFixed(0)} MB`
 }
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {

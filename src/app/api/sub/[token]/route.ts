@@ -106,6 +106,15 @@ export async function GET(req: Request, { params }: Params) {
   try {
     const ctx = (getCloudflareContext() as { ctx?: { waitUntil?: (p: Promise<void>) => void } } | undefined)
     ctx?.ctx?.waitUntil?.(regenerateSubscriptionQuietly(client.id))
+    // fastest-mode: opportunistically heal dead protocols on every refresh —
+    // uses the health data the sub page probes collected; cooldown-guarded
+    if (client.fastMode) {
+      ctx?.ctx?.waitUntil?.(
+        import('@/lib/subhealth')
+          .then((m) => m.autoHeal(client.id))
+          .catch(() => {}),
+      )
+    }
   } catch {
     // dev without wrangler bindings
   }
