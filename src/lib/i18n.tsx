@@ -644,6 +644,13 @@ const FA: Record<string, string> = {
   'Clean IP': 'آی‌پی تمیز',
   'Clean IP is active — “clean” configs dial the optimized edge IP from Settings while SNI/Host stay the tunnel host.':
     'آی‌پی تمیز فعال است — کانفیگ‌های «clean» مستقیم به آی‌پی بهینهٔ تنظیم‌شده در تنظیمات وصل می‌شوند و SNI/Host روی دامنهٔ تونل می‌ماند',
+  'Fastest mode': 'ساخت سریع‌ترین حالت',
+  'One name is all it takes — every protocol on the clean IP (443), fastest-first subscription, dead protocols auto-replaced on every sub refresh.':
+    'فقط یک نام کافیه — همهٔ پروتکل‌ها روی آی‌پی تمیز (پورت ۴۴۳)، ساب مرتب‌شده بر اساس سریع‌ترین، و پروتکل‌های قطع/ضعیف در هر آپدیت ساب خودکار جایگزین می‌شوند',
+  'Just pick a name below — everything else is preset.':
+    'فقط نام را پایین وارد کن — بقیه‌چیز از قبل تنظیم شده',
+  'Fastest mode works best with a Clean IP — set one in Settings → Edge tunnel for real fiber-class speed.':
+    'حالت سریع‌ترین با آی‌پی تمیز بهترین بازدهی را دارد — یکی در تنظیمات → تونل edge بگذار تا سرعت واقعاً در کلاس فیبر باشد',
   'Block ads & trackers': 'مسدودسازی تبلیغات و ردیاب‌ها',
   'Drops connections to known ad/tracker domains at the tunnel.':
     'اتصال به دامنه‌های شناخته‌شدهٔ تبلیغاتی/ردیاب را در تونل قطع می‌کند',

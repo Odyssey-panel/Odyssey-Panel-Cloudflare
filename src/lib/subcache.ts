@@ -14,6 +14,7 @@
 import { db } from '@/lib/db'
 import { getCloudflareContext } from '@opennextjs/cloudflare'
 import { buildSubscription, type SubFormat, type ProxyLike } from '@/lib/links'
+import { orderFastest } from '@/lib/subhealth'
 
 const KV_TTL_SECONDS = 7 * 24 * 3600 // a week; rows are rewritten on change
 const FORMATS: SubFormat[] = ['base64', 'raw', 'clash', 'singbox']
@@ -69,7 +70,13 @@ export async function regenerateSubscription(clientId: string): Promise<void> {
     })
     if (!client) return
 
-    const proxies: ProxyLike[] = client.proxies.map((p) => ({
+    // fastMode: fastest-first ordering — known-good latency first, clean-IP
+    // variants before domain ones (no health data yet → clean-first heuristic)
+    const ordered = client.fastMode
+      ? orderFastest(client.proxies, await import('@/lib/subhealth').then((m) => m.readHealth(client.subToken)))
+      : client.proxies
+
+    const proxies: ProxyLike[] = ordered.map((p) => ({
       protocol: p.protocol,
       remark: p.remark,
       address: p.address,

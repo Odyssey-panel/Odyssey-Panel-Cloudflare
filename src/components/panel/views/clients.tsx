@@ -684,6 +684,9 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
   // clean-IP variant: on by default whenever the admin configured one —
   // Zeus-style, optimized speed without any extra click
   const [addrClean, setAddrClean] = useState(true)
+  // fastest-mode: one name → clean-IP-first configs, all protocols, 443,
+  // fastest-first sub + dead-protocol auto-replace (server-side preset)
+  const [fastMode, setFastMode] = useState(false)
   const [genCount, setGenCount] = useState('1')
   // Zeus-grade extras: TLS port fan-out, ECH, first-connection expiry, direct
   const [portsSel, setPortsSel] = useState<Set<number>>(new Set())
@@ -848,7 +851,7 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
       toast.error(t('Pick a worker first (or register one in Nodes & workers)'))
       return
     }
-    if (withProxy && backendMode === 'builtin' && tunnelProtos.size === 0) {
+    if (withProxy && backendMode === 'builtin' && !fastMode && tunnelProtos.size === 0) {
       toast.error(t('Pick at least one protocol'))
       return
     }
@@ -869,6 +872,8 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
           fingerprint,
           startOnFirstConnection: startOnFirst,
           directEnabled: directOn,
+          // fastest-mode: one name → server presets protocols/variants/ports
+          fastMode: fastMode || undefined,
           // edge tunnel: generate one account per selected protocol (+ variants)
           ...(withProxy && backendMode === 'builtin'
             ? {
@@ -940,6 +945,47 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-odyssey-navy/10 text-[10px] font-bold text-odyssey-deep dark:bg-odyssey-cyan/15 dark:text-odyssey-bright">1</span>
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('User info')}</span>
             </div>
+            {/* Fastest mode — one name is all it takes */}
+            <button
+              type="button"
+              onClick={() => setFastMode((v) => !v)}
+              className={`w-full rounded-2xl border p-3.5 text-left transition-colors ${
+                fastMode
+                  ? 'border-odyssey-cyan/60 bg-odyssey-cyan/[0.08]'
+                  : 'border-border/60 bg-muted/20 hover:border-odyssey-cyan/30'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${
+                  fastMode ? 'bg-odyssey-cyan/15 text-odyssey-deep ring-odyssey-cyan/40 dark:text-odyssey-bright' : 'bg-muted text-muted-foreground ring-border/60'
+                }`}>
+                  <Zap className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 text-sm font-semibold leading-tight">
+                    {t('Fastest mode')}
+                    <span className={`h-4 w-7 shrink-0 rounded-full transition-colors ${fastMode ? 'bg-odyssey-cyan' : 'bg-muted-foreground/25'} relative`}>
+                      <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${fastMode ? 'left-3.5' : 'left-0.5'}`} />
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                    {t('One name is all it takes — every protocol on the clean IP (443), fastest-first subscription, dead protocols auto-replaced on every sub refresh.')}
+                  </div>
+                </div>
+              </div>
+              {fastMode && (
+                <div className="mt-2.5 space-y-1.5">
+                  <p className="text-[11px] font-medium text-foreground/80">
+                    {t('Just pick a name below — everything else is preset.')}
+                  </p>
+                  {backendMode === 'builtin' && !cleanIpOk && (
+                    <p className="rounded-xl border border-amber-400/40 bg-amber-400/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-foreground">
+                      {t('Fastest mode works best with a Clean IP — set one in Settings → Edge tunnel for real fiber-class speed.')}
+                    </p>
+                  )}
+                </div>
+              )}
+            </button>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="c-name">{t('Name *')}</Label>

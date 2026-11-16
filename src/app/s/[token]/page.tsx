@@ -1,87 +1,103 @@
 import { db } from '@/lib/db'
-import { formatBytes } from '@/lib/format'
+import { headers } from 'next/headers'
+import { buildShareLink, type ProxyLike } from '@/lib/links'
+import SubProbe from './sub-probe'
 
-export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 type Props = { params: Promise<{ token: string }> }
 
 /**
- * Public per-user subscription status page (self-service portal).
- * Shows quota/traffic/expiry — no secrets, no config links.
+ * Public subscription page — the human-facing side of the sub link.
+ * Silently device-tests every vless config (the user's own network is the
+ * only honest liveness source), reports the results so dead/weak protocols
+ * get auto-replaced, and shows the tap-to-copy subscription link.
  */
-export default async function SubStatusPage({ params }: Props) {
+export default async function SubPage({ params }: Props) {
   const { token } = await params
   if (!/^[a-f0-9]{16,64}$/i.test(token)) {
-    return <StatusCard title='Odyssey' rows={[]} state='notfound' />
+    return <Shell title="Odyssey">{p('لینک نامعتبر است', 'Invalid link')}</Shell>
   }
+
   const client = await db.client.findUnique({
     where: { subToken: token },
-    include: { proxies: { select: { protocol: true, remark: true } } },
+    include: { proxies: true },
   })
-  if (!client) return <StatusCard title='Odyssey' rows={[]} state='notfound' />
+  if (!client || client.status !== 'active') {
+    return (
+      <Shell title="Odyssey">
+        {p('اشتراک یافت نشد یا غیرفعال است', 'Subscription not found or disabled')}
+      </Shell>
+    )
+  }
 
-  const expired = client.expiresAt && client.expiresAt.getTime() < Date.now()
-  const trafficOver = client.limitBytes > 0 && client.usedBytes >= client.limitBytes
-  const state = client.status !== 'active' ? 'disabled' : expired ? 'expired' : trafficOver ? 'over' : 'active'
+  const h = await headers()
+  const origin =
+    (h.get('x-forwarded-proto') || 'https') + '://' + (h.get('host') || '')
+  const subUrl = `${origin}/api/sub/${token}`
 
-  const rows: Array<[string, string]> = [
-    ['Protocol count', String(client.proxies.length)],
-    [
-      'Traffic',
-      client.limitBytes > 0
-        ? `${formatBytes(Number(client.usedBytes))} / ${formatBytes(Number(client.limitBytes))}`
-        : `${formatBytes(Number(client.usedBytes))} (unlimited)`,
-    ],
-    ['Requests', client.requestLimit > 0 ? `${client.usedRequests} / ${client.requestLimit}` : String(client.usedRequests)],
-    [
-      'Expiry',
-      !client.expiresAt
-        ? 'unlimited'
-        : `${client.expiresAt.toISOString().slice(0, 10)} (${Math.max(0, Math.ceil((client.expiresAt.getTime() - Date.now()) / 86400000))} days left)`,
-    ],
-    ['Last update', client.updatedAt.toISOString().slice(0, 16).replace('T', ' ')],
-  ]
+  const items = client.proxies.map((px) => {
+    const like: ProxyLike = {
+      protocol: px.protocol,
+      remark: px.remark,
+      address: px.address,
+      port: px.port,
+      secret: px.secret,
+      sni: px.sni,
+      host: px.host,
+      path: px.path,
+      transport: px.transport,
+      tls: px.tls,
+      flow: px.flow,
+      fragment: px.fragment,
+      fp: px.fp,
+      ech: px.ech,
+      plugin: px.plugin,
+    }
+    return { remark: px.remark, protocol: px.protocol, uri: buildShareLink(like) }
+  })
 
-  return <StatusCard title={`Odyssey — ${client.name}`} rows={rows} state={state} />
+  return (
+    <Shell title={`Odyssey · ${client.name}`}>
+      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+        <div className="text-sm font-semibold text-white/90">{client.name}</div>
+        <p className="mt-1 text-xs leading-relaxed text-white/55">
+          لینک زیر را در برنامه (v2rayNG / Hiddify / Streisand) اضافه کنید — هر بار آپدیت ساب، پروتکل‌های قطع یا ضعیف خودکار جایگزین می‌شوند.
+          <br />
+          <span className="text-white/40">Add this link to your VPN app — dead protocols are replaced automatically on every refresh.</span>
+        </p>
+        <input
+          readOnly
+          value={subUrl}
+          onFocus={(e) => e.currentTarget.select()}
+          className="mt-3 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 font-mono text-xs text-emerald-300 outline-none"
+          dir="ltr"
+        />
+      </div>
+      <SubProbe token={token} items={items} />
+    </Shell>
+  )
 }
 
-function StatusCard({
-  title,
-  rows,
-  state,
-}: {
-  title: string
-  rows: Array<[string, string]>
-  state: 'active' | 'disabled' | 'expired' | 'over' | 'notfound'
-}) {
-  const badge = {
-    active: { text: 'Active', cls: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
-    disabled: { text: 'Disabled', cls: 'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400' },
-    expired: { text: 'Expired', cls: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' },
-    over: { text: 'Traffic limit', cls: 'bg-rose-500/15 text-rose-600 dark:text-rose-400' },
-    notfound: { text: 'Not found', cls: 'bg-rose-500/15 text-rose-600 dark:text-rose-400' },
-  }[state]
+function Shell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <main className='mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 p-6'>
-      <div className='rounded-2xl border bg-card p-6 shadow-sm'>
-        <div className='flex items-center justify-between gap-3'>
-          <h1 className='text-lg font-bold tracking-tight'>{title}</h1>
-          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${badge.cls}`}>{badge.text}</span>
-        </div>
-        <dl className='mt-4 space-y-2 text-sm'>
-          {rows.map(([k, v]) => (
-            <div key={k} className='flex items-center justify-between gap-3 border-t pt-2 first:border-t-0'>
-              <dt className='text-muted-foreground'>{k}</dt>
-              <dd className='font-medium' dir='ltr'>{v}</dd>
-            </div>
-          ))}
-        </dl>
-        {rows.length === 0 && (
-          <p className='mt-3 text-sm text-muted-foreground'>This subscription link does not exist.</p>
-        )}
+    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-4 bg-[#0a0e1a] px-4 py-10 font-sans">
+      <div className="flex items-center gap-2">
+        <span className="text-lg font-black tracking-tight text-white">Odyssey</span>
+        <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-bold text-emerald-300">PANEL</span>
       </div>
-      <p className='text-center text-xs text-muted-foreground'>Odyssey Panel — self-service status</p>
+      <title>{title}</title>
+      {children}
     </main>
+  )
+}
+
+function p(fa: string, en: string) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm leading-relaxed text-white/70">
+      {fa}
+      <br />
+      <span className="text-white/40">{en}</span>
+    </div>
   )
 }

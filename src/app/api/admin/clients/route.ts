@@ -26,6 +26,9 @@ type CreateBody = {
   // TLS ClientHello fingerprint + ISP tag
   fingerprint?: string
   isp?: string
+  /** fastest-mode: one name → clean-IP-first configs on 443, all protocols,
+   *  fastest-first sub ordering + dead-protocol auto-replace on sub refresh */
+  fastMode?: boolean
   // expiry anchored to the first connection instead of creation time
   startOnFirstConnection?: boolean
   // account generation
@@ -91,6 +94,7 @@ export async function POST(req: Request) {
       limitBytes: BigInt(Math.round((body.trafficGb ?? 0) * 1024 ** 3)),
       expiresAt,
       startOnFirstConnection: body.startOnFirstConnection === true,
+      fastMode: body.fastMode === true,
       planDays,
       requestLimit: Math.max(0, Math.round(body.requestLimit ?? 0)),
       ipLimit: Math.max(0, Math.round(body.ipLimit ?? 0)),
@@ -110,20 +114,25 @@ export async function POST(req: Request) {
   }
 
   let generationError: string | null = null
-  const requested = (body.protocols || []).filter(Boolean)
+  const fast = body.fastMode === true
+  // fastest-mode preset: every protocol, clean-IP + domain variants, 443 —
+  // the admin picks ONLY a name; auto-heal keeps the set alive afterwards
+  const requested = fast
+    ? ['vless', 'trojan', 'shadowsocks']
+    : (body.protocols || []).filter(Boolean)
   if (requested.length) {
     try {
       const accounts = await generateAccounts({
         name,
         protocols: requested,
         workers: body.workers || [],
-        addressTypes: body.addressTypes || [],
-        count: body.count,
+        addressTypes: fast ? ['clean', 'domain'] : body.addressTypes || [],
+        count: fast ? 1 : body.count,
         fragment: body.fragment || null,
         fingerprint: (body.fingerprint || 'chrome').trim(),
         sni: body.sni,
         ech: body.ech?.trim() || null,
-        ports: body.ports || [],
+        ports: fast ? [443] : body.ports || [],
       })
       await persistAccounts(client.id, accounts)
     } catch (e) {
