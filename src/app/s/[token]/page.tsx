@@ -84,6 +84,26 @@ export default async function SubPage({ params }: Props) {
         />
       </div>
       <SubProbe token={token} items={items} />
+      <div className="rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-4">
+        <div className="text-xs font-semibold text-amber-200">
+          اگر کانفیگ‌ها وصل نمی‌شوند — چک‌لیست
+          <span className="text-amber-200/50"> · if nothing connects</span>
+        </div>
+        <ol className="mt-2 list-decimal space-y-1.5 ps-4 text-xs leading-relaxed text-white/70">
+          <li>
+            اول کانفیگ‌های <span dir="ltr" className="font-mono text-emerald-300">· clean</span> را تست کن — با IP مستقیم وصل می‌شوند و DNS میانی را دور می‌زنند.
+          </li>
+          <li>
+            کانفیگ‌های <span dir="ltr" className="font-mono text-emerald-300">· clean-fx</span> دارای Fragment هستند (ضد فیلترینگ SNI) — در Hiddify / Streisand / NekoBox خودکار اعمال می‌شود.
+          </li>
+          <li>
+            در v2rayNG: تنظیمات → <b>Fragment</b> را روشن کن و دوباره تست بگیر.
+          </li>
+          <li>
+            اگر DNS اپراتورت مسدود است، DNS گوشی را عوض کن (مثلاً Shecan <span dir="ltr">178.22.122.100</span> یا <span dir="ltr">8.8.8.8</span>) تا دامنه‌ها هم باز شوند.
+          </li>
+        </ol>
+      </div>
     </Shell>
   )
 }
