@@ -27,6 +27,10 @@ export type ProxyLike = {
   ech?: string | null
   /** Shadowsocks plugin string (v2ray-plugin websocket mode) */
   plugin?: string | null
+  /** VLESS-Reality client params (pbk/sid/spx) — VPS backend without a domain. */
+  reality?: { pbk?: string; sid?: string; spx?: string } | null
+  /** Server-side Reality private key — only used when building xray inbounds. */
+  realityPriv?: string | null
 }
 
 /** All protocols the panel can generate accounts/links for. */
@@ -152,6 +156,23 @@ export function buildShareLink(p: ProxyLike): string {
   const q: string[] = []
 
   if (p.protocol === 'vless') {
+    const reality = p.reality?.pbk
+      ? { pbk: p.reality.pbk, sid: p.reality.sid || '', spx: p.reality.spx || '/' }
+      : null
+    if (reality) {
+      // Reality: TCP transport, security=reality, vision flow by default
+      q.push(`flow=${p.flow || 'xtls-rprx-vision'}`)
+      q.push('type=tcp')
+      q.push('security=reality')
+      if (p.sni) q.push(`sni=${encodeURIComponent(p.sni)}`)
+      q.push(`pbk=${encodeURIComponent(reality.pbk)}`)
+      if (reality.sid) q.push(`sid=${encodeURIComponent(reality.sid)}`)
+      q.push(`spx=${encodeURIComponent(reality.spx)}`)
+      q.push(`fp=${encodeURIComponent(p.fp || DEFAULT_FINGERPRINT)}`)
+      const frag = fragmentParam(p)
+      if (frag) q.push(frag)
+      return `vless://${p.secret}@${host}:${p.port}?${q.join('&')}#${remark}`
+    }
     if (p.flow) q.push(`flow=${p.flow}`)
     q.push(`type=${transport}`)
     q.push(`security=${security}`)
@@ -253,7 +274,20 @@ export function buildServerConfig(p: ProxyLike) {
       network: transport,
       security: p.tls ? 'tls' : 'none',
     }
-    if (p.tls && p.sni) {
+    if (p.protocol === 'vless' && p.reality?.pbk) {
+      // VLESS-Reality inbound: no cert files, borrows the handshake of dest
+      streamSettings.network = 'tcp'
+      streamSettings.security = 'reality'
+      streamSettings.realitySettings = {
+        show: false,
+        dest: `${p.sni || 'www.samsung.com'}:443`,
+        xver: 0,
+        serverNames: [p.sni || 'www.samsung.com'],
+        privateKey: p.realityPriv || '',
+        shortIds: [p.reality.sid || ''],
+        spiderX: p.reality.spx || '/',
+      }
+    } else if (p.tls && p.sni) {
       streamSettings.tlsSettings = {
         serverName: p.sni,
         certificates: [
@@ -277,7 +311,13 @@ export function buildServerConfig(p: ProxyLike) {
     let protocol = p.protocol
     const settings: Record<string, unknown> = {}
     if (p.protocol === 'vless') {
-      settings.clients = [{ id: p.secret, flow: p.flow || '', email: `${p.remark}@panel` }]
+      settings.clients = [
+        {
+          id: p.secret,
+          flow: p.reality?.pbk ? p.flow || 'xtls-rprx-vision' : p.flow || '',
+          email: `${p.remark}@panel`,
+        },
+      ]
       settings.decryption = 'none'
     } else if (p.protocol === 'vmess') {
       settings.clients = [{ id: p.secret, alterId: 0, email: `${p.remark}@panel` }]
@@ -389,7 +429,12 @@ function proxyYaml(p: ProxyLike): string | null {
     lines.push(`    type: vless`, `    uuid: ${p.secret}`, `    tls: ${p.tls}`)
     if (p.sni) lines.push(`    servername: "${escapeYaml(p.sni)}"`)
     lines.push(`    network: ${t}`, `    client-fingerprint: ${p.fp || 'chrome'}`)
-    if (p.flow) lines.push(`    flow: ${p.flow}`)
+    if (p.reality?.pbk) {
+      lines.push(`    flow: ${p.flow || 'xtls-rprx-vision'}`)
+      lines.push(`    reality-opts:`, `      public-key: "${escapeYaml(p.reality.pbk)}"`)
+      if (p.reality.sid) lines.push(`      short-id: "${escapeYaml(p.reality.sid)}"`)
+    }
+    if (p.flow && !p.reality?.pbk) lines.push(`    flow: ${p.flow}`)
     if (p.ech) lines.push(`    ech-opts:`, `      enabled: true`, `      config: "${escapeYaml(p.ech)}"`)
     if (t === 'ws') {
       lines.push(`    ws-opts:`, `      path: "${escapeYaml(p.path || '/')}"`)
@@ -471,6 +516,15 @@ function buildSingBox(proxies: ProxyLike[]) {
           ? { utls: { enabled: true, fingerprint: p.fp } }
           : { utls: { enabled: true, fingerprint: 'chrome' } }),
         ...(p.ech ? { ech: { enabled: true, config: p.ech } } : {}),
+        ...(p.protocol === 'vless' && p.reality?.pbk
+          ? {
+              reality: {
+                enabled: true,
+                public_key: p.reality.pbk,
+                short_id: p.reality.sid || '',
+              },
+            }
+          : {}),
       }
     }
     if (t === 'ws' && ['vless', 'vmess', 'trojan'].includes(p.protocol)) {
@@ -479,7 +533,12 @@ function buildSingBox(proxies: ProxyLike[]) {
       base.transport = { type: 'grpc', service_name: p.path || '' }
     }
     if (p.protocol === 'vless') {
-      outbounds.push({ type: 'vless', uuid: p.secret, flow: p.flow || '', ...base })
+      outbounds.push({
+        type: 'vless',
+        uuid: p.secret,
+        flow: p.reality?.pbk ? p.flow || 'xtls-rprx-vision' : p.flow || '',
+        ...base,
+      })
     } else if (p.protocol === 'vmess') {
       outbounds.push({ type: 'vmess', uuid: p.secret, alter_id: 0, security: 'auto', ...base })
     } else if (p.protocol === 'trojan') {

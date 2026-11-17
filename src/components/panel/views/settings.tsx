@@ -14,9 +14,9 @@ import { toast } from 'sonner'
 import { useTheme } from 'next-themes'
 import { useLang, type Lang } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { Loader2, Save, Globe2, Languages, Palette, MonitorSmartphone, Sun, Moon, Network, Shield, Radar } from 'lucide-react'
+import { Loader2, Save, Globe2, Languages, Palette, MonitorSmartphone, Sun, Moon, Network, Shield, Radar, Server } from 'lucide-react'
 
-type Settings = {
+export type Settings = {
   publicUrl: string
   lastOrigin: string
   tunnelUrl: string
@@ -26,6 +26,9 @@ type Settings = {
   tunnelBlockAds: string
   tunnelBlockPorn: string
   tunnelBlockExtra: string
+  vpsHost: string
+  vpsPort: string
+  vpsSni: string
 }
 
 type ProxyIpResult = {
@@ -170,6 +173,56 @@ export function SettingsView() {
               />
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ── VPS / Reality server — the no-Cloudflare backend ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Server className="h-4 w-4 text-primary" /> {t('VPS / Reality server')}
+          </CardTitle>
+          <CardDescription>{t('When set, every built-in config becomes VLESS-Reality pointing at this server — no domain, no certificate, no Cloudflare, no workers.dev blocking.')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="st-vpshost">{t('Server IP / host')}</Label>
+              <Input
+                id="st-vpshost"
+                value={form.vpsHost || ''}
+                onChange={(e) => setForm((f) => (f ? { ...f, vpsHost: e.target.value } : f))}
+                placeholder="51.15.20.30"
+                dir="ltr"
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="st-vpsport">{t('Reality port')}</Label>
+              <Input
+                id="st-vpsport"
+                value={form.vpsPort || ''}
+                onChange={(e) => setForm((f) => (f ? { ...f, vpsPort: e.target.value } : f))}
+                placeholder="443"
+                dir="ltr"
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="st-vpssni">{t('Reality SNI (borrowed site)')}</Label>
+              <Input
+                id="st-vpssni"
+                value={form.vpsSni || ''}
+                onChange={(e) => setForm((f) => (f ? { ...f, vpsSni: e.target.value } : f))}
+                placeholder="www.samsung.com"
+                dir="ltr"
+                className="font-mono text-xs"
+              />
+            </div>
+          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {t('Deploy xray on the VPS with the one-command config export (Nodes → VPS → download config.json). Reality borrows the TLS handshake of the SNI site, so Iran-side DPI sees ordinary traffic to a real domain while the connection rides your VPS IP at full line speed.')}
+          </p>
         </CardContent>
       </Card>
 

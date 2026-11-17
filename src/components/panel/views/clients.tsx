@@ -115,7 +115,7 @@ const FRAGMENT_PROTOS = new Set(['vless', 'trojan'])
 //  own     → the admin's own VPS/server (manual fields)
 // ────────────────────────────────────────────────────────────────────────────
 
-type BackendMode = 'builtin' | 'worker' | 'own'
+type BackendMode = 'builtin' | 'worker' | 'own' | 'vps'
 
 type WorkerRow = {
   id: string
@@ -163,6 +163,7 @@ function backendSubmitFields(
       path: '/vlessws',
       transport: 'ws',
       tls: true,
+      reality: false,
     }
   }
   if (mode === 'worker' && worker) {
@@ -175,6 +176,21 @@ function backendSubmitFields(
       path: pathFromUrl(worker.url),
       transport: 'ws',
       tls: true,
+      reality: false,
+    }
+  }
+  if (mode === 'vps') {
+    // VPS-Reality: the admin's server directly, TCP + vision flow, pbk/sid
+    // generated server-side. No domain, no certificate, no CDN.
+    return {
+      address: manual.address.trim(),
+      port: Number(manual.port) || 443,
+      sni: manual.sni.trim() || undefined,
+      host: undefined,
+      path: '/',
+      transport: 'tcp',
+      tls: true,
+      reality: true,
     }
   }
   return {
@@ -185,6 +201,7 @@ function backendSubmitFields(
     path: manual.path.trim() || '/',
     transport: manual.transport,
     tls: manual.tls,
+    reality: false,
   }
 }
 
@@ -222,13 +239,14 @@ function BackendPicker({
   const { t } = useLang()
   const options: { id: BackendMode; label: string; icon: typeof Server; desc: string }[] = [
     { id: 'builtin', label: t('Odyssey built-in'), icon: ShieldCheck, desc: t('Ready in 0 seconds — runs on this panel') },
+    { id: 'vps', label: t('VPS · Reality'), icon: Server, desc: t('Your VPS IP — no domain, no Cloudflare') },
     { id: 'worker', label: t('Cloudflare worker'), icon: Cloud, desc: t('Iran-optimized via your worker') },
     { id: 'own', label: t('My own server'), icon: Server, desc: t('VPS / custom host') },
   ]
   const workerList = workers || []
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
         {options.map((o) => {
           const active = mode === o.id
           return (
@@ -899,6 +917,7 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                 host: withProxy && !isMtprotoC && !isSingboxC ? fields.host : undefined,
                 tls: withProxy && !isMtprotoC && !isSingboxC ? fields.tls : true,
                 fragment: withProxy && showFragmentC && fragmentOn ? fragment.trim() || undefined : undefined,
+                reality: withProxy && backendMode === 'vps' && protocol === 'vless' ? true : undefined,
               }),
         }),
       })
@@ -1219,8 +1238,13 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                   </div>
                 )}
 
-                {(!usePicker || backendMode === 'own') && (
+                {(!usePicker || backendMode === 'own' || backendMode === 'vps') && (
                   <>
+                    {backendMode === 'vps' && (
+                      <p className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-2.5 text-[11px] leading-relaxed text-emerald-700 dark:text-emerald-400">
+                        {t('Reality on your VPS — no domain, no certificate, no Cloudflare. Transport is TCP and the vision flow is applied automatically (vless only).')}
+                      </p>
+                    )}
                     <div className="grid gap-3 sm:grid-cols-3">
                       <div className="space-y-1.5 sm:col-span-2">
                         <Label>{t('Server address / IP *')}</Label>
@@ -1251,7 +1275,7 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                         <Label>{isMtprotoC ? 'FakeTLS domain' : t('SNI / domain')}</Label>
                         <Input value={sni} onChange={(e) => setSni(e.target.value)} placeholder={t('same as address')} />
                       </div>
-                      {showStreamC && (
+                      {showStreamC && backendMode !== 'vps' && (
                         <>
                           <div className="space-y-1.5">
                             <Label>{t('Transport')}</Label>
@@ -1269,7 +1293,7 @@ function CreateClientDialog({ open, onOpenChange, onDone }: { open: boolean; onO
                         </>
                       )}
                     </div>
-                    {showStreamC && (
+                    {showStreamC && backendMode !== 'vps' && (
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="space-y-1.5">
                           <Label>{transport === 'grpc' ? t('Service name') : t('WS path')}</Label>
@@ -2102,6 +2126,7 @@ function AddAccountButton({ clientId, onAdded, defaultRemark }: { clientId: stri
           tls: isMtproto || isSingboxLike ? true : fields.tls,
           fragment: showFragment ? fragment.trim() || undefined : undefined,
           remark: remark.trim() || undefined,
+          reality: backendMode === 'vps' && protocol === 'vless' ? true : undefined,
         }),
       })
       toast.success(t('Account generated'))
@@ -2184,8 +2209,13 @@ function AddAccountButton({ clientId, onAdded, defaultRemark }: { clientId: stri
               </div>
             )}
 
-            {(!usePicker || backendMode === 'own') && (
+            {(!usePicker || backendMode === 'own' || backendMode === 'vps') && (
               <>
+            {backendMode === 'vps' && (
+              <p className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-2.5 text-[11px] leading-relaxed text-emerald-700 dark:text-emerald-400">
+                {t('Reality on your VPS — no domain, no certificate, no Cloudflare. Transport is TCP and the vision flow is applied automatically (vless only).')}
+              </p>
+            )}
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>{isMtproto ? t('Server address / IP *') : t('Address *')}</Label>
@@ -2216,7 +2246,7 @@ function AddAccountButton({ clientId, onAdded, defaultRemark }: { clientId: stri
                 <Label>{isMtproto ? 'FakeTLS domain' : t('SNI')}</Label>
                 <Input value={sni} onChange={(e) => setSni(e.target.value)} />
               </div>
-              {showStream && (
+              {showStream && backendMode !== 'vps' && (
                 <>
                   <div className="space-y-1.5">
                     <Label>{t('Transport')}</Label>
@@ -2232,7 +2262,7 @@ function AddAccountButton({ clientId, onAdded, defaultRemark }: { clientId: stri
                 </>
               )}
             </div>
-            {showStream && (
+            {showStream && backendMode !== 'vps' && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>{transport === 'grpc' ? t('Service name') : t('WS path')}</Label>
@@ -2261,7 +2291,7 @@ function AddAccountButton({ clientId, onAdded, defaultRemark }: { clientId: stri
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>{t('Cancel')}</Button>
-            <Button onClick={submit} disabled={busy || (usePicker ? backendMode === 'own' && !address.trim() : !address.trim())}>
+            <Button onClick={submit} disabled={busy || (usePicker ? (backendMode === 'own' || backendMode === 'vps') && !address.trim() : !address.trim())}>
               {busy && <Loader2 className="h-4 w-4 animate-spin" />} {t('Generate')}
             </Button>
           </DialogFooter>

@@ -71,6 +71,9 @@ model Proxy {
   fp           String? // TLS ClientHello fingerprint override (chrome, ios, ...)
   ech          String? // Encrypted ClientHello config (public name / resolver)
   plugin       String? // e.g. v2ray-plugin websocket parameters for shadowsocks
+  // VLESS-Reality client params (JSON: {pbk, sid, spx}) — VPS backend, no
+  // domain/cert needed. The server private key lives in Setting.realityKeys.
+  reality      String?
   serverConfig String? // JSON server-side inbound config for xray/sing-box
   createdAt    DateTime @default(now())
 }

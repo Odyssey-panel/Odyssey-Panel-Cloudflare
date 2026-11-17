@@ -42,7 +42,7 @@ import { TelegramProxyView } from './views/telegram-proxy'
 export type ViewKey = 'dashboard' | 'clients' | 'antifilter' | 'nodes' | 'scanner' | 'telegram' | 'settings'
 
 /** Version badge shown at the bottom of the panel (mobile + desktop footer). */
-export const PANEL_VERSION = 'V9.8'
+export const PANEL_VERSION = 'V9.9'
 
 export const NAV_ITEMS: {
   key: ViewKey

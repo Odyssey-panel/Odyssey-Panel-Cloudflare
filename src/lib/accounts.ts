@@ -14,9 +14,10 @@
  * API — straight into the KV subscription cache.
  */
 import { db } from '@/lib/db'
-import { tunnelFieldFor, type BuiltinFields } from '@/lib/backend'
+import { tunnelFieldFor, vpsRealityFields, type BuiltinFields } from '@/lib/backend'
 import { generateSecret, validateProtocol } from '@/lib/secrets'
 import { isValidFragment, buildServerConfig } from '@/lib/links'
+import { newRealityParams, REALITY_FLOW } from '@/lib/reality'
 import { CF_HTTP_PORTS } from '@/lib/worker-kit'
 
 /** Protocols the edge tunnel actually serves. */
@@ -40,6 +41,9 @@ export type GenerateOptions = {
   ech?: string | null
   /** extra ports for one-account-per-port fan-out (TLS, plain-HTTP, or any custom 1-65535) */
   ports?: number[]
+  /** VPS-Reality mode: vless accounts terminate on the admin's VPS with
+   *  VLESS-Reality (no domain/cert/CDN). Requires Settings → vpsHost. */
+  reality?: boolean
 }
 
 export type GeneratedAccount = {
@@ -53,10 +57,13 @@ export type GeneratedAccount = {
   path: string
   transport: string
   tls: boolean
+  flow: string | null
   fragment: string | null
   fp: string | null
   ech: string | null
   plugin: string | null
+  /** JSON reality params {pbk,sid,spx} for VLESS-Reality accounts */
+  reality: string | null
   serverConfig: string
 }
 
@@ -176,6 +183,69 @@ function endpointTag(host: string): string {
  * one first — the panel UI guides that flow).
  */
 export async function generateAccounts(opts: GenerateOptions): Promise<GeneratedAccount[]> {
+  // ── VPS-Reality mode ─────────────────────────────────────────────────
+  // vless accounts point at the admin's VPS with Reality (TCP/443). Other
+  // protocols would need a domain+cert on the VPS — they are skipped here so
+  // the generated set is 100% connectable out of the box.
+  if (opts.reality) {
+    const fields = await vpsRealityFields()
+    if (!fields) {
+      throw new Error('NO_VPS: set the VPS host in Settings → VPS / Reality first')
+    }
+    const count = Math.min(Math.max(1, opts.count ?? 1), 8)
+    const out: GeneratedAccount[] = []
+    for (let i = 0; i < count; i++) {
+      const r = await newRealityParams()
+      if (!r) {
+        throw new Error('Reality keys unavailable on this runtime — run the panel on Node (VPS/Docker) once')
+      }
+      const protoTag = 'VLESS'
+      const base = `${opts.name} · ${protoTag} · Reality`
+      const seenN = i + 1
+      const remark = count > 1 ? `${base} #${seenN}` : base
+      const secret = generateSecret('vless')
+      const proxyLike = {
+        protocol: 'vless',
+        remark,
+        address: fields.address,
+        port: fields.port,
+        secret,
+        sni: opts.sni?.trim() || fields.sni,
+        host: fields.host,
+        path: fields.path,
+        transport: 'tcp',
+        tls: true,
+        flow: REALITY_FLOW,
+        fragment: null,
+        fp: opts.fingerprint || 'chrome',
+        ech: null,
+        plugin: null,
+        reality: r.params,
+        realityPriv: r.priv,
+      }
+      out.push({
+        protocol: 'vless',
+        remark,
+        address: fields.address,
+        port: fields.port,
+        secret,
+        sni: proxyLike.sni,
+        host: fields.host,
+        path: fields.path,
+        transport: 'tcp',
+        tls: true,
+        flow: REALITY_FLOW,
+        fragment: null,
+        fp: proxyLike.fp,
+        ech: null,
+        plugin: null,
+        reality: JSON.stringify(r.params),
+        serverConfig: JSON.stringify(buildServerConfig(proxyLike)),
+      })
+    }
+    return out
+  }
+
   const protocols = opts.protocols.filter((p) => TUNNEL_PROTOCOLS.includes(p as 'vless'))
   for (const p of protocols) {
     const err = validateProtocol(p)
@@ -321,10 +391,12 @@ export async function persistAccounts(
           path: a.path,
           transport: a.transport,
           tls: a.tls,
+          flow: a.flow,
           fragment: a.fragment,
           fp: a.fp,
           ech: a.ech,
           plugin: a.plugin,
+          reality: a.reality,
           serverConfig: a.serverConfig,
         },
       }),
@@ -369,10 +441,12 @@ function finalize(
     path: fields.path,
     transport: fields.transport,
     tls: fields.tls,
+    flow: null,
     fragment: proxyLike.fragment,
     fp: proxyLike.fp,
     ech: proxyLike.ech,
     plugin: proxyLike.plugin,
+    reality: null,
     serverConfig: JSON.stringify(buildServerConfig(proxyLike)),
   }
 }

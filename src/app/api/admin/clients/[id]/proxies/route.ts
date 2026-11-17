@@ -3,6 +3,7 @@ import { requireAuth, jsonSafe } from '@/lib/auth'
 import { buildServerConfig, isValidFragment } from '@/lib/links'
 import { generateSecret, validateProtocol } from '@/lib/secrets'
 import { normalizeProxyTarget, panelHost, syncBackend } from '@/lib/backend'
+import { newRealityParams, REALITY_FLOW, parseReality } from '@/lib/reality'
 import { regenerateSubscription } from '@/lib/subcache'
 import { memoDrop } from '@/lib/memo'
 
@@ -24,6 +25,9 @@ type ProxyBody = {
   fp?: string
   ech?: string
   plugin?: string
+  flow?: string
+  /** true → force VLESS-Reality (tcp transport, vision flow, auto pbk/sid) */
+  reality?: boolean
 }
 
 export async function POST(req: Request, { params }: Params) {
@@ -65,6 +69,31 @@ export async function POST(req: Request, { params }: Params) {
   }
 
   const secret = generateSecret(protocol)
+
+  // ── VLESS-Reality (VPS backend) ────────────────────────────────────────
+  let realityJson: string | null = null
+  let realityPriv: string | null = null
+  let transport = norm.transport ?? 'ws'
+  let tls = norm.tls ?? true
+  let flow = body.flow?.trim() || null
+  if (body.reality === true) {
+    if (protocol !== 'vless') {
+      return Response.json({ error: 'Reality is only available for vless' }, { status: 400 })
+    }
+    transport = 'tcp'
+    tls = true
+    flow = flow || REALITY_FLOW
+    const r = await newRealityParams()
+    if (!r) {
+      return Response.json(
+        { error: 'Reality keys unavailable on this runtime — run the panel on Node (VPS/Docker) once' },
+        { status: 400 },
+      )
+    }
+    realityJson = JSON.stringify(r.params)
+    realityPriv = r.priv
+  }
+
   // Free naming: the admin types whatever remark they want; empty falls
   // back to the client's name (no forced prefix — Zeus-style clean labels).
   const rawRemark = body.remark?.trim() || ''
@@ -77,12 +106,15 @@ export async function POST(req: Request, { params }: Params) {
     sni: norm.sni ?? null,
     host: norm.host ?? null,
     path: norm.path ?? '/',
-    transport: norm.transport ?? 'ws',
-    tls: norm.tls ?? true,
+    transport,
+    tls,
+    flow,
     fragment: body.fragment?.trim() || null,
     fp: body.fp?.trim() || null,
     ech: body.ech?.trim() || null,
     plugin: body.plugin?.trim() || null,
+    reality: realityJson ? parseReality(realityJson) : null,
+    realityPriv,
   }
 
   const proxy = await db.proxy.create({
@@ -98,10 +130,12 @@ export async function POST(req: Request, { params }: Params) {
       path: proxyLike.path,
       transport: proxyLike.transport,
       tls: proxyLike.tls,
+      flow: proxyLike.flow,
       fragment: proxyLike.fragment,
       fp: proxyLike.fp,
       ech: proxyLike.ech,
       plugin: proxyLike.plugin,
+      reality: realityJson,
       serverConfig: JSON.stringify(buildServerConfig(proxyLike)),
     },
   })

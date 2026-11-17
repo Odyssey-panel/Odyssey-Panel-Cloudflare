@@ -91,11 +91,14 @@ export async function panelHost(): Promise<string> {
 export type BuiltinFields = {
   address: string
   port: number
-  transport: 'ws'
-  tls: true
+  /** 'ws' (edge tunnel) | 'tcp' (VPS Reality) */
+  transport: string
+  tls: boolean
   sni: string
   host: string
   path: string
+  /** VLESS-Reality backend: per-account reality params are generated at finalize time */
+  reality?: boolean
 }
 
 /**
@@ -104,6 +107,33 @@ export type BuiltinFields = {
  */
 export async function tunnelFields(): Promise<BuiltinFields | null> {
   return tunnelFieldFor('vless')
+}
+
+/**
+ * VPS-Reality builtin backend — the "bye Cloudflare" path.
+ *
+ * When the admin stores a VPS IP/host in Settings (vpsHost), every builtin
+ * config points at the VPS directly with VLESS-Reality over TCP: no domain,
+ * no certificate, no CDN, no workers.dev — the VPS IP itself is the clean
+ * IP, and throughput is the VPS line rate (no Workers CPU/req caps).
+ */
+export async function vpsRealityFields(): Promise<BuiltinFields | null> {
+  const { getSettings } = await import('./settings')
+  const s = await getSettings()
+  const host = (s.vpsHost || '').trim()
+  if (!host) return null
+  const port = Math.round(Number(s.vpsPort)) || 443
+  const sni = (s.vpsSni || '').trim() || 'www.samsung.com'
+  return {
+    address: host,
+    port,
+    transport: 'tcp',
+    tls: true,
+    sni,
+    host: sni,
+    path: '/',
+    reality: true,
+  }
 }
 
 /**
@@ -194,6 +224,13 @@ export async function normalizeProxyTarget(
       !!panelHostname && !!address && hostOf(address) === panelHostname
     const isTunnelHost = !!address && /\.workers\.dev$/i.test(address) && !!hostOf(address).match(/tunnel/i)
     if (isPanelHost || isTunnelHost || !address) {
+      // VPS-Reality backend wins when configured — it is reachable from Iran
+      // without any workers.dev dependency. The tunnel stays available via
+      // explicit worker addresses.
+      const vps = await vpsRealityFields()
+      if (vps) {
+        return { ...vps, usedBuiltin: true, note: 'vps-reality' }
+      }
       const t = await tunnelFields()
       if (t) {
         return { ...t, usedBuiltin: true, note: 'edge-tunnel' }

@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { buildSubscription, type SubFormat, type ProxyLike } from '@/lib/links'
+import { parseReality } from '@/lib/reality'
 import { readSubscriptionCache } from '@/lib/subcache'
 import { bumpRequestCounter } from '@/app/api/admin/usage/route'
 import { getCloudflareContext } from '@opennextjs/cloudflare'
@@ -111,6 +112,7 @@ export async function GET(req: Request, { params }: Params) {
     fp: p.fp,
     ech: p.ech,
     plugin: p.plugin,
+    reality: parseReality(p.reality),
   }))
 
   const { body, contentType } = buildSubscription(proxies, format)

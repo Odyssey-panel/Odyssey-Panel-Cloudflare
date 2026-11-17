@@ -23,6 +23,13 @@ export type PanelSettings = {
    *  directly instead of the tunnel hostname — SNI/Host stay the tunnel host.
    *  The single biggest real-throughput lever on ISPs with bad anycast routing. */
   tunnelCleanIp: string
+  /** VPS-Reality backend host (IP/domain). When set, builtin configs become
+   *  VLESS-Reality pointing at the VPS — the no-Cloudflare deployment. */
+  vpsHost: string
+  /** VPS-Reality inbound port (default 443). */
+  vpsPort: string
+  /** Borrowed TLS handshake domain for Reality (dest/serverName). */
+  vpsSni: string
 }
 
 /** Source of truth for defaults — missing DB rows fall back to these. */
@@ -39,6 +46,9 @@ export const SETTINGS_DEFAULTS: Record<keyof PanelSettings, string> = {
   tunnelBlockPorn: '',
   tunnelBlockExtra: '',
   tunnelCleanIp: '',
+  vpsHost: '',
+  vpsPort: '',
+  vpsSni: '',
 }
 
 /** Keys hidden from the settings GET response. */

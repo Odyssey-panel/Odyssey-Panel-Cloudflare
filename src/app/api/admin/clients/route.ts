@@ -3,7 +3,10 @@ import { requireAuth, jsonSafe } from '@/lib/auth'
 import { randomBytes } from 'node:crypto'
 import { generateAccounts, persistAccounts } from '@/lib/accounts'
 import { regenerateSubscription, invalidateSubscription } from '@/lib/subcache'
-import { syncBackend } from '@/lib/backend'
+import { syncBackend, normalizeProxyTarget, panelHost } from '@/lib/backend'
+import { generateSecret, validateProtocol } from '@/lib/secrets'
+import { buildServerConfig, isValidFragment } from '@/lib/links'
+import { newRealityParams, REALITY_FLOW, parseReality } from '@/lib/reality'
 import { memoCached, memoDrop } from '@/lib/memo'
 import { getCloudflareContext } from '@opennextjs/cloudflare'
 
@@ -40,6 +43,17 @@ type CreateBody = {
   sni?: string
   ech?: string
   ports?: number[] // extra TLS ports (Zeus-style fan-out)
+  // single manual account (create dialog: own / VPS-Reality mode)
+  protocol?: string
+  address?: string
+  port?: number
+  transport?: string
+  path?: string
+  host?: string
+  tls?: boolean
+  flow?: string
+  /** true → VLESS-Reality on the admin's VPS (no domain/cert) */
+  reality?: boolean
   // tunnel content policy (GLOBAL — baked into the tunnel on next redeploy)
   blockAds?: boolean
   blockPorn?: boolean
@@ -116,9 +130,23 @@ export async function POST(req: Request) {
   let generationError: string | null = null
   const fast = body.fastMode === true
   // fastest-mode preset: every protocol, clean-IP + domain variants, 443 —
-  // the admin picks ONLY a name; auto-heal keeps the set alive afterwards
+  // the admin picks ONLY a name; auto-heal keeps the set alive afterwards.
+  // When a VPS-Reality backend is configured (Settings → vpsHost) the fast
+  // path becomes a single Reality account on the VPS — the no-Cloudflare set.
+  let realityFast = false
+  if (fast) {
+    try {
+      const { getSettings } = await import('@/lib/settings')
+      const s = await getSettings()
+      realityFast = Boolean((s.vpsHost || '').trim())
+    } catch {
+      realityFast = false
+    }
+  }
   const requested = fast
-    ? ['vless', 'trojan', 'shadowsocks']
+    ? realityFast
+      ? ['vless']
+      : ['vless', 'trojan', 'shadowsocks']
     : (body.protocols || []).filter(Boolean)
   if (requested.length) {
     try {
@@ -133,8 +161,88 @@ export async function POST(req: Request) {
         sni: body.sni,
         ech: body.ech?.trim() || null,
         ports: fast ? [443] : body.ports || [],
+        reality: realityFast,
       })
       await persistAccounts(client.id, accounts)
+    } catch (e) {
+      generationError = e instanceof Error ? e.message : 'Account generation failed'
+    }
+  } else if (body.protocol && (body.address || '').trim()) {
+    // single manual account from the create dialog (own server / VPS-Reality)
+    try {
+      const proto = body.protocol
+      const protoErr = validateProtocol(proto)
+      if (protoErr) throw new Error(protoErr)
+      if (body.fragment && !isValidFragment(body.fragment)) throw new Error('Invalid fragment value')
+      const norm = await normalizeProxyTarget(
+        {
+          address: (body.address || '').trim(),
+          port: body.port,
+          sni: body.sni,
+          host: body.host,
+          path: body.path,
+          transport: body.transport,
+          tls: body.tls,
+        },
+        await panelHost(),
+      )
+      let realityJson: string | null = null
+      let realityPriv: string | null = null
+      let transport = norm.transport ?? 'ws'
+      let tls = norm.tls ?? true
+      let flow = body.flow?.trim() || null
+      if (body.reality === true) {
+        if (proto !== 'vless') throw new Error('Reality is only available for vless')
+        transport = 'tcp'
+        tls = true
+        flow = flow || REALITY_FLOW
+        const r = await newRealityParams()
+        if (!r) throw new Error('Reality keys unavailable on this runtime — run the panel on Node (VPS/Docker) once')
+        realityJson = JSON.stringify(r.params)
+        realityPriv = r.priv
+      }
+      const secret = generateSecret(proto)
+      const proxyLike = {
+        protocol: proto,
+        remark: name,
+        address: norm.address,
+        port: norm.port ?? body.port ?? 443,
+        secret,
+        sni: norm.sni ?? null,
+        host: norm.host ?? null,
+        path: norm.path ?? '/',
+        transport,
+        tls,
+        flow,
+        fragment: body.fragment?.trim() || null,
+        fp: (body.fingerprint || 'chrome').trim(),
+        ech: body.ech?.trim() || null,
+        plugin: null,
+        reality: realityJson ? parseReality(realityJson) : null,
+        realityPriv,
+      }
+      await db.proxy.create({
+        data: {
+          clientId: client.id,
+          protocol: proto,
+          remark: name,
+          address: proxyLike.address,
+          port: proxyLike.port,
+          secret,
+          sni: proxyLike.sni,
+          host: proxyLike.host,
+          path: proxyLike.path,
+          transport: proxyLike.transport,
+          tls: proxyLike.tls,
+          flow: proxyLike.flow,
+          fragment: proxyLike.fragment,
+          fp: proxyLike.fp,
+          ech: proxyLike.ech,
+          plugin: null,
+          reality: realityJson,
+          serverConfig: JSON.stringify(buildServerConfig(proxyLike)),
+        },
+      })
     } catch (e) {
       generationError = e instanceof Error ? e.message : 'Account generation failed'
     }

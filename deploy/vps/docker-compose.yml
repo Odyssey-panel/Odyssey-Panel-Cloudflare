@@ -1,0 +1,30 @@
+# Odyssey Panel + Xray Reality — the no-Cloudflare deployment.
+#   cd deploy/vps && docker compose up -d
+services:
+  panel:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile
+    image: odyssey-panel:local
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=file:/data/odyssey.db
+      - ODYSSEY_INLINE_JOBS=1
+      - PORT=3000
+    volumes:
+      - panel-data:/data
+    ports:
+      # Panel on localhost:3000 — put Caddy/Nginx with HTTPS in front for
+      # production, or change to "3000:3000" to expose it directly.
+      - "127.0.0.1:3000:3000"
+
+  xray:
+    image: teddysun/xray:latest
+    restart: unless-stopped
+    # host networking: Reality binds 443 with real client IPs
+    network_mode: host
+    volumes:
+      - ./xray/config.json:/etc/xray/config.json:ro
+
+volumes:
+  panel-data:

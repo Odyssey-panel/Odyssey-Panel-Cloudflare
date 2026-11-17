@@ -3,6 +3,7 @@ import { requireAuth, jsonSafe } from '@/lib/auth'
 import { buildServerConfig, isValidFragment } from '@/lib/links'
 import { generateSecret } from '@/lib/secrets'
 import { normalizeProxyTarget, panelHost, syncBackend } from '@/lib/backend'
+import { newRealityParams, getRealityKeys, parseReality, REALITY_FLOW } from '@/lib/reality'
 import { regenerateSubscription } from '@/lib/subcache'
 
 export const runtime = 'nodejs'
@@ -58,9 +59,36 @@ export async function PATCH(req: Request, { params }: Params) {
   for (const key of ['fp', 'ech', 'plugin'] as const) {
     if (body[key] !== undefined) data[key] = String(body[key]).trim() || null
   }
+  if (body.flow !== undefined) data.flow = String(body.flow).trim() || null
+
+  // ── VLESS-Reality toggle (VPS backend) ─────────────────────────────────
+  if (body.reality !== undefined) {
+    const want = Boolean(body.reality)
+    if (want) {
+      if (proxy.protocol !== 'vless') {
+        return Response.json({ error: 'Reality is only available for vless' }, { status: 400 })
+      }
+      if (!parseReality(proxy.reality)) {
+        const r = await newRealityParams()
+        if (!r) {
+          return Response.json(
+            { error: 'Reality keys unavailable on this runtime — run the panel on Node (VPS/Docker) once' },
+            { status: 400 },
+          )
+        }
+        data.reality = JSON.stringify(r.params)
+      }
+      data.transport = 'tcp'
+      data.tls = true
+      if (body.flow === undefined && !proxy.flow) data.flow = REALITY_FLOW
+    } else {
+      data.reality = null
+    }
+  }
 
   const updated = await db.proxy.update({ where: { id }, data })
-  // rebuild server config snapshot
+  // rebuild server config snapshot (preserve flow + reality)
+  const keys = parseReality(updated.reality) ? await getRealityKeys() : null
   await db.proxy.update({
     where: { id },
     data: {
@@ -76,7 +104,9 @@ export async function PATCH(req: Request, { params }: Params) {
           path: updated.path,
           transport: updated.transport,
           tls: updated.tls,
-          flow: null,
+          flow: updated.flow,
+          reality: parseReality(updated.reality),
+          realityPriv: keys?.priv ?? null,
         })
       ),
     },

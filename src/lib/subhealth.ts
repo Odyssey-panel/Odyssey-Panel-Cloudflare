@@ -135,6 +135,9 @@ export async function autoHeal(clientId: string): Promise<number> {
     }
 
     let replaced = 0
+    const { getSettings } = await import('@/lib/settings')
+    const s = await getSettings()
+    const vpsSet = Boolean((s.vpsHost || '').trim())
     for (const [proto, list] of byProto) {
       if (replaced >= 2) break
       const generated = await generateAccounts({
@@ -143,6 +146,7 @@ export async function autoHeal(clientId: string): Promise<number> {
         addressTypes: ['clean', 'domain'],
         ports: [443],
         count: 1,
+        reality: proto === 'vless' && vpsSet,
       })
       if (!generated.length) continue
       // drop the dead rows, add the fresh ones (remark family preserved by
@@ -164,10 +168,12 @@ export async function autoHeal(clientId: string): Promise<number> {
             path: g.path,
             transport: g.transport,
             tls: g.tls,
+            flow: g.flow,
             fragment: g.fragment,
             fp: g.fp,
             ech: g.ech,
             plugin: g.plugin,
+            reality: g.reality,
             serverConfig: g.serverConfig,
           },
         })

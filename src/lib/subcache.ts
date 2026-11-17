@@ -14,6 +14,7 @@
 import { db } from '@/lib/db'
 import { getCloudflareContext } from '@opennextjs/cloudflare'
 import { buildSubscription, type SubFormat, type ProxyLike } from '@/lib/links'
+import { parseReality } from '@/lib/reality'
 import { orderFastest } from '@/lib/subhealth'
 
 const KV_TTL_SECONDS = 7 * 24 * 3600 // a week; rows are rewritten on change
@@ -91,6 +92,7 @@ export async function regenerateSubscription(clientId: string): Promise<void> {
       fragment: p.fragment,
       fp: p.fp,
       ech: p.ech,
+      reality: parseReality(p.reality),
     }))
 
     const formats: Partial<Record<SubFormat, string>> = {}

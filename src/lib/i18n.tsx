@@ -292,11 +292,24 @@ const FA: Record<string, string> = {
   // ── built-in backend + worker kit + address normalization ──
   'Odyssey built-in': 'داخلی پنل',
   'Ready in 0 seconds — runs on this panel': 'بدون هیچ تنظیمی — همین پنل خودش سرور است',
+  'VPS · Reality': 'وی‌پی‌اس · ریلیتی',
+  'Your VPS IP — no domain, no Cloudflare': 'IP وی‌پی‌اس خودت — بدون دامنه، بدون کلادفلر',
+  'Reality on your VPS — no domain, no certificate, no Cloudflare. Transport is TCP and the vision flow is applied automatically (vless only).':
+    'ریلیتی روی وی‌پی‌اس خودت — بدون دامنه، بدون گواهی TLS، بدون کلادفلر. ترنسپورت TCP است و فلو vision خودکار اعمال می‌شود (فقط vless).',
   'Cloudflare worker': 'ورکر کلادفلر',
   'Iran-optimized via your worker': 'بهینه برای ایران از طریق ورکر خودت',
   'My own server': 'سرور خودم',
   'VPS / custom host': 'وی‌پی‌اس یا هاست دلخواه',
   'Where the config runs': 'کانفیگ کجا اجرا بشه؟',
+  // ── VPS / Reality settings card ──
+  'VPS / Reality server': 'سرور وی‌پی‌اس / ریلیتی',
+  'When set, every built-in config becomes VLESS-Reality pointing at this server — no domain, no certificate, no Cloudflare, no workers.dev blocking.':
+    'وقتی پر شود همهٔ کانفیگ‌های داخلی به VLESS-Reality روی همین سرور تبدیل می‌شوند — بدون دامنه، بدون گواهی TLS، بدون کلادفلر و بدون بن شدن workers.dev.',
+  'Server IP / host': 'آی‌پی / هاست سرور',
+  'Reality port': 'پورت ریلیتی',
+  'Reality SNI (borrowed site)': 'SNI ریلیتی (دامنهٔ قرضی)',
+  'Deploy xray on the VPS with the one-command config export (Nodes → VPS → download config.json). Reality borrows the TLS handshake of the SNI site, so Iran-side DPI sees ordinary traffic to a real domain while the connection rides your VPS IP at full line speed.':
+    'ایکس‌ری را با خروجی یک‌دستوری از پنل روی وی‌پی‌اس راه بینداز (دانلود config.json از مسیر /api/admin/vps/xray-config). ریلیتی هندشیک TLS دامنهٔ SNI را قرض می‌گیرد؛ DPI از دید ایران فقط ترافیک عادی به یک دامنهٔ واقعی می‌بیند، در حالی که ترافیک روی IP وی‌پی‌اس تو با حداکثر سرعت خط جابه‌جا می‌شود.',
   'The config will run on this panel itself (wss) — nothing else to set up. The address fields below are filled automatically.':
     'کانفیگ روی همین پنل اجرا می‌شه (wss) — هیچ چیز دیگه‌ای لازم نیست؛ فیلدهای آدرس خودکار پر می‌شن.',
   'No worker registered yet — add one in Nodes & workers (the worker code and step-by-step guide are there).':
