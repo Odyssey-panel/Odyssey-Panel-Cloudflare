@@ -100,7 +100,7 @@ export function tunnelWorkerSource(proxyIp = '', blockFlags = ''): string {
     '',
     "export default {",
     "  async fetch(request, env) {",
-    "    globalThis.__DBG = (env.TUNNEL_DEBUG || '') === '1';",
+    "    try { globalThis.__DBG = (env.TUNNEL_DEBUG || '') === '1'; } catch (_) { }",
     "    const url = new URL(request.url);",
     "    if ((request.headers.get('Upgrade') || '').toLowerCase() === 'websocket') {",
     "      const route = resolveRoute(url, env);",
