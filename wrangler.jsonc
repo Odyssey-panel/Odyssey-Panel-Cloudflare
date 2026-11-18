@@ -18,14 +18,14 @@
     {
       "binding": "DB",
       "database_name": "odyssey-db",
-      // Fresh D1 on the current account (recreated after the old account was banned).
-      "database_id": "071049ed-d446-4a73-82d6-bdbbb4501d35",
+      // Fresh D1 on the new account (migrated from the old one, 2026-11-18).
+      "database_id": "a65fa2c8-360b-4930-a339-5577633a201c",
       "migrations_dir": "migrations"
     }
   ],
   "kv_namespaces": [
-    { "binding": "KV", "id": "1444b6375d9844248d3481fffc8bed46" },
-    { "binding": "NEXT_INC_CACHE_KV", "id": "25ad2c4c7e1e4e96b03414e4e66d60b7" }
+    { "binding": "KV", "id": "2dc064b1878843fca53926fa6183c0f0" },
+    { "binding": "NEXT_INC_CACHE_KV", "id": "56fd2bb0a7ae4f9e8e70741b03930a1f" }
   ],
   // SPEED: Smart Placement — Cloudflare runs the worker close to its data
   // (D1), so each request pays the long hop once instead of paying it for
